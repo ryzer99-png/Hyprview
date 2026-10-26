@@ -17,6 +17,56 @@ impl DisplayConfiguration {
         self.monitors.values().any(|m| m.enabled)
     }
 
+    /// Detects if any non-mirrored (extended) displays overlap each other
+    pub fn find_extended_overlaps(&self) -> Vec<(String, String)> {
+        let active: Vec<&Monitor> = self
+            .monitors
+            .values()
+            .filter(|m| m.enabled && m.mirror_of.is_none())
+            .collect();
+
+        let mut overlaps = Vec::new();
+        for i in 0..active.len() {
+            for j in (i + 1)..active.len() {
+                let r1 = active[i].logical_rect();
+                let r2 = active[j].logical_rect();
+                if r1.overlaps(&r2) {
+                    overlaps.push((active[i].name.clone(), active[j].name.clone()));
+                }
+            }
+        }
+        overlaps
+    }
+
+    /// Automatically aligns all enabled extended monitors side-by-side with zero overlap
+    pub fn auto_arrange_side_by_side(&mut self) {
+        let mut sorted_keys: Vec<String> = self.monitors.keys().cloned().collect();
+        // Place internal laptop screen on left, or sort by current position
+        sorted_keys.sort_by(|a, b| {
+            let mon_a = &self.monitors[a];
+            let mon_b = &self.monitors[b];
+            let a_internal = mon_a.is_internal();
+            let b_internal = mon_b.is_internal();
+            if a_internal != b_internal {
+                b_internal.cmp(&a_internal)
+            } else {
+                mon_a.position.x.cmp(&mon_b.position.x)
+            }
+        });
+
+        let mut current_x = 0;
+        for key in sorted_keys {
+            if let Some(m) = self.monitors.get_mut(&key) {
+                if m.enabled && m.mirror_of.is_none() {
+                    m.position.x = current_x;
+                    m.position.y = 0;
+                    let (w, _) = m.logical_size();
+                    current_x += w.round() as i32;
+                }
+            }
+        }
+    }
+
     /// Calculates virtual canvas bounding rectangle: (min_x, min_y, max_x, max_y)
     pub fn bounding_box(&self) -> (f64, f64, f64, f64) {
         let active: Vec<_> = self.monitors.values().filter(|m| m.enabled).collect();

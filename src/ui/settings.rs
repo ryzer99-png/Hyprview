@@ -228,10 +228,20 @@ impl MonitorSettingsPanel {
 
                 if idx == 0 || others_ref.is_empty() {
                     // Extended mode
+                    let was_mirrored = mon.mirror_of.is_some();
                     mon.mirror_of = None;
                     modes_clone.set_sensitive(true);
                     scale_row_clone.set_sensitive(true);
                     scale_box_clone.set_sensitive(true);
+
+                    if was_mirrored {
+                        let (w, _) = mon.logical_size();
+                        if mon.position.x == 0 {
+                            mon.position.x = w.round() as i32;
+                        } else {
+                            mon.position.x = 0;
+                        }
+                    }
                 } else if idx - 1 < others_ref.len() {
                     // Mirror of another monitor
                     let target_name = others_ref[idx - 1].clone();

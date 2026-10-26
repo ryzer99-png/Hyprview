@@ -445,8 +445,15 @@ impl DisplayCanvas {
             draw_rounded_rect(cr, rx, ry, rw, rh, 10.0);
             let _ = cr.fill();
 
+            let is_overlapping = m.enabled && m.mirror_of.is_none() && state.monitors.iter().any(|other| {
+                other.name != m.name && other.enabled && other.mirror_of.is_none() && m.logical_rect().overlaps(&other.logical_rect())
+            });
+
             // 3. Border with high contrast
-            if is_selected {
+            if is_overlapping {
+                cr.set_source_rgb(0.98, 0.70, 0.53); // Warning amber #fab387
+                cr.set_line_width(2.6);
+            } else if is_selected {
                 cr.set_source_rgb(0.21, 0.51, 0.96); // Libadwaita accent blue #3584e4
                 cr.set_line_width(2.8);
             } else if m.mirror_of.is_some() {
@@ -507,6 +514,14 @@ impl DisplayCanvas {
             if m.mirror_of.is_some() {
                 let badge_layout = pango::Layout::new(&pango_ctx);
                 badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#a6e3a1'>MIRROR</span>");
+                cr.move_to(badge_offset_x, ry + 6.0);
+                pangocairo::functions::show_layout(cr, &badge_layout);
+                badge_offset_x += 52.0;
+            }
+
+            if is_overlapping {
+                let badge_layout = pango::Layout::new(&pango_ctx);
+                badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#fab387'>⚠️ OVERLAP</span>");
                 cr.move_to(badge_offset_x, ry + 6.0);
                 pangocairo::functions::show_layout(cr, &badge_layout);
             }

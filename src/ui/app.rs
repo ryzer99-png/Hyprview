@@ -45,6 +45,12 @@ impl MainAppWindow {
             .build();
         header_bar.pack_start(&reload_btn);
 
+        let auto_align_btn = gtk4::Button::builder()
+            .icon_name("view-grid-symbolic")
+            .tooltip_text("Auto-align displays side-by-side (resolves overlaps)")
+            .build();
+        header_bar.pack_start(&auto_align_btn);
+
         let sidebar_toggle_btn = gtk4::ToggleButton::builder()
             .icon_name("view-right-pane-symbolic")
             .tooltip_text("Toggle Display Settings Panel")
@@ -170,18 +176,35 @@ impl MainAppWindow {
             state,
         };
 
-        app_window.wire_actions(reload_btn, apply_btn);
+        app_window.wire_actions(reload_btn, apply_btn, auto_align_btn);
         app_window.reload_monitors();
 
         app_window
     }
 
-    fn wire_actions(&self, reload_btn: gtk4::Button, apply_btn: gtk4::Button) {
+    fn wire_actions(&self, reload_btn: gtk4::Button, apply_btn: gtk4::Button, auto_align_btn: gtk4::Button) {
         // Reload action
         let app_reload = self.clone();
         reload_btn.connect_clicked(move |_| {
             app_reload.reload_monitors();
             app_reload.show_toast("Reloaded display configuration from Hyprland");
+        });
+
+        // Auto-align action (resolves overlaps)
+        let app_align = self.clone();
+        auto_align_btn.connect_clicked(move |_| {
+            {
+                let mut s = app_align.state.borrow_mut();
+                s.draft_config.auto_arrange_side_by_side();
+                let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
+                app_align.canvas.set_monitors(mon_list.clone());
+                if let Some(ref sel) = s.selected_monitor {
+                    if let Some(mon) = s.draft_config.monitors.get(sel).cloned() {
+                        app_align.settings_panel.set_monitor(Some(mon), &mon_list);
+                    }
+                }
+            }
+            app_align.show_toast("Displays aligned side-by-side with zero overlap");
         });
 
         // Apply action with 15-second safety rollback
@@ -224,6 +247,16 @@ impl MainAppWindow {
 
         if !draft.has_active_display() {
             self.show_toast("Safety Error: At least one display must remain enabled!");
+            return;
+        }
+
+        let overlaps = draft.find_extended_overlaps();
+        if !overlaps.is_empty() {
+            let names: Vec<String> = overlaps.iter().map(|(a, b)| format!("{} & {}", a, b)).collect();
+            self.show_toast(&format!(
+                "Invalid Layout: Displays {} overlap! Separate them or click Auto-Align.",
+                names.join(", ")
+            ));
             return;
         }
 
