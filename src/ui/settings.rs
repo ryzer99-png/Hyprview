@@ -129,7 +129,7 @@ impl MonitorSettingsPanel {
             .margin_bottom(12)
             .build();
 
-        let scale_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 1.0, 2.5, 0.25);
+        let scale_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 1.0, 2.0, 0.25);
         scale_scale.set_hexpand(true);
         scale_scale.set_value(1.0);
         scale_scale.add_mark(1.0, gtk4::PositionType::Bottom, Some("100%"));
@@ -389,6 +389,11 @@ impl MonitorSettingsPanel {
             }
 
             // Set scale
+            if m.scale > 2.0 {
+                self.scale_scale.set_range(1.0, m.scale);
+            } else {
+                self.scale_scale.set_range(1.0, 2.0);
+            }
             self.scale_scale.set_value(m.scale);
             self.scale_label.set_text(&format!("{:.0}%", m.scale * 100.0));
 
