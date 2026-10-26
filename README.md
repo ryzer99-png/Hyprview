@@ -15,15 +15,27 @@
 2. **Display Mirroring (Modo Espejo 🪞):**
    - Easily duplicate or mirror any screen with automatic geometry adaptation.
 
-3. **15-Second Safety Rollback Guard:**
+3. **Primary Display (Pantalla Principal ⭐):**
+   - Designate any active monitor as the primary display.
+   - Automatically re-anchors desktop coordinates so the primary monitor sits at `(0, 0)`.
+   - Visual star indicators on canvas cards and top quick-selection pills (`⭐ PRIMARY`).
+   - Prioritizes output in Hyprland configuration and dispatches focus to the primary monitor on apply.
+
+4. **Overlap Protection & Banner Alert:**
+   - Detects invalid overlapping layouts in Extended Mode before applying.
+   - Dynamic `AdwBanner` with 1-click **Auto-Align Side-by-Side** button.
+   - Blocks invalid configurations with informative `AdwAlertDialog` explaining Hyprland layout restrictions.
+
+5. **15-Second Safety Rollback Guard:**
    - AdwAlertDialog confirmation countdown on applying changes.
    - Automatically reverts to previous working configuration if not confirmed within 15 seconds (prevents black screens).
    - Persists changes to both `~/.config/hypr/monitors.lua` and `~/.config/hypr/monitors.conf`.
 
-4. **Rescue Daemon Mode (`--daemon`):**
+6. **Rescue Daemon Mode (`--daemon`):**
    - Background event watcher on Hyprland IPC socket (`.socket2.sock`).
    - Automatically re-enables laptop internal screen (`eDP-1`) if all external displays are disconnected.
    - Evaluates display state at boot time to prevent black-screen cold starts.
+
 
 ---
 

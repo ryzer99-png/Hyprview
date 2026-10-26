@@ -109,6 +109,7 @@ mod tests {
             model: "".to_string(),
             serial: "".to_string(),
             enabled: true,
+            is_primary: true,
             active_mode: Mode::new(1920, 1080, 60.0),
             position: Point::new(x, 0),
             scale: 1.0,
@@ -117,6 +118,7 @@ mod tests {
             available_modes: vec![],
             mirror_of: None,
         }])
+
     }
 
     #[test]

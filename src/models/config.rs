@@ -7,15 +7,63 @@ pub struct DisplayConfiguration {
 }
 
 impl DisplayConfiguration {
-    pub fn new(monitors: Vec<Monitor>) -> Self {
+    pub fn new(mut monitors: Vec<Monitor>) -> Self {
+        // Ensure at most one enabled monitor is primary; if none, designate the first active
+        let has_primary = monitors.iter().any(|m| m.enabled && m.is_primary);
+        if !has_primary {
+            if let Some(first_active) = monitors.iter_mut().find(|m| m.enabled) {
+                first_active.is_primary = true;
+            }
+        } else {
+            let mut found = false;
+            for m in monitors.iter_mut() {
+                if m.enabled && m.is_primary {
+                    if !found {
+                        found = true;
+                    } else {
+                        m.is_primary = false;
+                    }
+                } else {
+                    m.is_primary = false;
+                }
+            }
+        }
+
         let map = monitors.into_iter().map(|m| (m.name.clone(), m)).collect();
         Self { monitors: map }
+    }
+
+    /// Returns the currently designated primary monitor, if any
+    pub fn primary_monitor(&self) -> Option<&Monitor> {
+        self.monitors.values().find(|m| m.enabled && m.is_primary)
+    }
+
+    /// Sets a monitor as the primary display, unsetting any previous primary monitor.
+    /// Automatically re-anchors the coordinate origin so the primary monitor is at (0, 0),
+    /// preserving the relative offset of all other extended monitors.
+    pub fn set_primary(&mut self, name: &str) {
+        if let Some(target) = self.monitors.get(name) {
+            if !target.enabled {
+                return;
+            }
+            let offset_x = target.position.x;
+            let offset_y = target.position.y;
+
+            for m in self.monitors.values_mut() {
+                if m.enabled && m.mirror_of.is_none() {
+                    m.position.x -= offset_x;
+                    m.position.y -= offset_y;
+                }
+                m.is_primary = m.name == name;
+            }
+        }
     }
 
     /// Checks if at least one screen is enabled to prevent complete blackouts
     pub fn has_active_display(&self) -> bool {
         self.monitors.values().any(|m| m.enabled)
     }
+
 
     /// Detects if any non-mirrored (extended) displays overlap each other
     pub fn find_extended_overlaps(&self) -> Vec<(String, String)> {
@@ -124,8 +172,13 @@ impl DisplayConfiguration {
         lines.push("# -----------------------------------------------------".to_string());
         lines.push("".to_string());
 
+        if let Some(primary) = self.primary_monitor() {
+            lines.push(format!("# Primary Monitor: {}", primary.name));
+            lines.push("".to_string());
+        }
+
         let mut sorted_monitors: Vec<_> = self.monitors.values().collect();
-        sorted_monitors.sort_by(|a, b| a.name.cmp(&b.name));
+        sorted_monitors.sort_by(|a, b| b.is_primary.cmp(&a.is_primary).then_with(|| a.name.cmp(&b.name)));
 
         for mon in sorted_monitors {
             lines.push(mon.to_hyprland_directive());
@@ -143,8 +196,13 @@ impl DisplayConfiguration {
         lines.push("-- -----------------------------------------------------".to_string());
         lines.push("".to_string());
 
+        if let Some(primary) = self.primary_monitor() {
+            lines.push(format!("-- Primary Monitor: {}", primary.name));
+            lines.push("".to_string());
+        }
+
         let mut sorted_monitors: Vec<_> = self.monitors.values().collect();
-        sorted_monitors.sort_by(|a, b| a.name.cmp(&b.name));
+        sorted_monitors.sort_by(|a, b| b.is_primary.cmp(&a.is_primary).then_with(|| a.name.cmp(&b.name)));
 
         for mon in sorted_monitors {
             lines.push(mon.to_lua_directive());
@@ -170,6 +228,7 @@ mod tests {
             model: "Display".to_string(),
             serial: "".to_string(),
             enabled,
+            is_primary: x == 0 && enabled,
             active_mode: Mode::new(1920, 1080, 60.0),
             position: Point::new(x, 0),
             scale: 1.0,
@@ -179,6 +238,7 @@ mod tests {
             mirror_of: None,
         }
     }
+
 
     #[test]
     fn test_has_active_display() {
@@ -231,7 +291,12 @@ mod tests {
 
         let overlaps = config.find_extended_overlaps();
         assert_eq!(overlaps.len(), 1);
-        assert_eq!(overlaps[0], ("eDP-1".to_string(), "HDMI-A-1".to_string()));
+        let pair = &overlaps[0];
+        assert!(
+            (pair.0 == "eDP-1" && pair.1 == "HDMI-A-1") || (pair.0 == "HDMI-A-1" && pair.1 == "eDP-1"),
+            "Expected overlap between eDP-1 and HDMI-A-1"
+        );
+
 
         // Now auto-arrange side by side
         config.auto_arrange_side_by_side();
@@ -246,5 +311,30 @@ mod tests {
         mirrored_config.monitors.get_mut("HDMI-A-1").unwrap().mirror_of = Some("eDP-1".to_string());
         assert!(mirrored_config.find_extended_overlaps().is_empty(), "Mirrored displays should not count as invalid overlaps");
     }
+
+    #[test]
+    fn test_set_primary_reanchoring() {
+        let mut config = DisplayConfiguration::new(vec![
+            dummy_monitor("eDP-1", 0, true),
+            dummy_monitor("HDMI-A-1", 1920, true),
+        ]);
+
+        assert!(config.monitors["eDP-1"].is_primary);
+        assert!(!config.monitors["HDMI-A-1"].is_primary);
+
+        // Switch primary to HDMI-A-1: should become (0,0) and eDP-1 should become (-1920, 0)
+        config.set_primary("HDMI-A-1");
+        assert!(config.monitors["HDMI-A-1"].is_primary);
+        assert!(!config.monitors["eDP-1"].is_primary);
+        assert_eq!(config.monitors["HDMI-A-1"].position.x, 0);
+        assert_eq!(config.monitors["eDP-1"].position.x, -1920);
+
+        // Primary monitor is serialized first
+        let conf = config.serialize_hyprland_conf();
+        let hdmi_pos = conf.find("monitor = HDMI-A-1").unwrap();
+        let edp_pos = conf.find("monitor = eDP-1").unwrap();
+        assert!(hdmi_pos < edp_pos, "Primary monitor must be listed first in configuration");
+    }
 }
+
 

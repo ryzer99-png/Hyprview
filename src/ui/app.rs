@@ -140,11 +140,41 @@ impl MainAppWindow {
         let state_update = Rc::clone(&state);
         let canvas_update = canvas.clone();
         let banner_settings_ref = Rc::clone(&banner_cell);
+        let settings_self_cell: Rc<RefCell<Option<MonitorSettingsPanel>>> = Rc::new(RefCell::new(None));
+        let settings_self_ref = Rc::clone(&settings_self_cell);
+        let toast_overlay_clone = toast_overlay.clone();
+
         let settings_panel = MonitorSettingsPanel::new(move |updated_mon| {
             let mut s = state_update.borrow_mut();
-            s.draft_config.monitors.insert(updated_mon.name.clone(), updated_mon);
+            if updated_mon.is_primary {
+                s.draft_config.set_primary(&updated_mon.name);
+                if let Some(m) = s.draft_config.monitors.get_mut(&updated_mon.name) {
+                    m.enabled = updated_mon.enabled;
+                    m.active_mode = updated_mon.active_mode;
+                    m.scale = updated_mon.scale;
+                    m.transform = updated_mon.transform;
+                    m.vrr = updated_mon.vrr;
+                    m.mirror_of = updated_mon.mirror_of;
+                }
+                let toast = adw::Toast::builder()
+                    .title(&format!("⭐ '{}' set as primary display (origin 0,0)", updated_mon.name))
+                    .use_markup(false)
+                    .timeout(2)
+                    .build();
+                toast_overlay_clone.add_toast(toast);
+            } else {
+                s.draft_config.monitors.insert(updated_mon.name.clone(), updated_mon);
+            }
             let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
-            canvas_update.set_monitors(mon_list);
+            canvas_update.set_monitors(mon_list.clone());
+
+            // Refresh settings panel so any other monitor's primary switch updates to false
+            if let Some(ref panel) = *settings_self_ref.borrow() {
+                if let Some(ref sel) = s.selected_monitor {
+                    let mon = s.draft_config.monitors.get(sel).cloned();
+                    panel.set_monitor(mon, &mon_list);
+                }
+            }
 
             if let Some(ref banner) = *banner_settings_ref.borrow() {
                 let overlaps = s.draft_config.find_extended_overlaps();
@@ -165,6 +195,8 @@ impl MainAppWindow {
         });
 
         *settings_select_cell.borrow_mut() = Some(settings_panel.clone());
+        *settings_self_cell.borrow_mut() = Some(settings_panel.clone());
+
 
         // Adaptive OverlaySplitView (Libadwaita 1.4+)
         let split_view = adw::OverlaySplitView::builder()
@@ -366,6 +398,11 @@ impl MainAppWindow {
             self.show_toast(&format!("Failed to apply: {}", e));
             return;
         }
+
+        if let Some(primary) = draft.primary_monitor() {
+            let _ = HyprctlClient::dispatch(&format!("focusmonitor {}", primary.name));
+        }
+
 
         // Display 15-second safety countdown dialog
         let mut guard = RollbackGuard::new(baseline.clone());

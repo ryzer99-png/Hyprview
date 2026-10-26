@@ -19,6 +19,7 @@ pub struct MonitorSettingsPanel {
     title_label: gtk4::Label,
     subtitle_label: gtk4::Label,
     enabled_switch: adw::SwitchRow,
+    primary_switch: adw::SwitchRow,
     mirror_combo: adw::ComboRow,
     modes_combo: adw::ComboRow,
     scale_row: adw::ActionRow,
@@ -88,12 +89,21 @@ impl MonitorSettingsPanel {
             .build();
         group.add(&enabled_switch);
 
-        // 2. Mirror Mode (Duplicar Pantalla)
+        // 2. Primary Display Switch
+        let primary_switch = adw::SwitchRow::builder()
+            .title("Primary Display")
+            .subtitle("Origin (0,0) anchor and default workspace screen")
+            .active(false)
+            .build();
+        group.add(&primary_switch);
+
+        // 3. Mirror Mode (Duplicar Pantalla)
         let mirror_combo = adw::ComboRow::builder()
             .title("Display Mode")
             .subtitle("Extend desktop or duplicate another screen")
             .build();
         group.add(&mirror_combo);
+
 
         // 3. Mode / Resolution
         let modes_combo = adw::ComboRow::builder()
@@ -180,6 +190,7 @@ impl MonitorSettingsPanel {
             title_label,
             subtitle_label,
             enabled_switch,
+            primary_switch,
             mirror_combo,
             modes_combo,
             scale_row,
@@ -199,7 +210,9 @@ impl MonitorSettingsPanel {
         let current = Rc::clone(&self.current_monitor);
         let update = Rc::clone(&self.update_fn);
         let suppress = Rc::clone(&self.suppress_events);
+        let primary_clone = self.primary_switch.clone();
         self.enabled_switch.connect_active_notify(move |switch| {
+            primary_clone.set_sensitive(switch.is_active());
             if *suppress.borrow() { return; }
             let mut opt = current.borrow_mut();
             if let Some(ref mut mon) = *opt {
@@ -209,6 +222,26 @@ impl MonitorSettingsPanel {
                 }
             }
         });
+
+        // Primary switch signal
+        let current = Rc::clone(&self.current_monitor);
+        let update = Rc::clone(&self.update_fn);
+        let suppress = Rc::clone(&self.suppress_events);
+        self.primary_switch.connect_active_notify(move |switch| {
+            if *suppress.borrow() { return; }
+            let mut opt = current.borrow_mut();
+            if let Some(ref mut mon) = *opt {
+                if switch.is_active() {
+                    mon.is_primary = true;
+                    if let Some(ref f) = *update.borrow() {
+                        f(mon.clone());
+                    }
+                } else if mon.is_primary {
+                    switch.set_active(true);
+                }
+            }
+        });
+
 
         // Mirror combo signal
         let current = Rc::clone(&self.current_monitor);
@@ -347,6 +380,9 @@ impl MonitorSettingsPanel {
             self.subtitle_label.set_label(&desc);
 
             self.enabled_switch.set_active(m.enabled);
+            self.primary_switch.set_active(m.is_primary);
+            self.primary_switch.set_sensitive(m.enabled);
+
 
             // Populate mirror options (Extended Desktop vs Mirror of <Other>)
             let candidate_targets: Vec<String> = all_monitors

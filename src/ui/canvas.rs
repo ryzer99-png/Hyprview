@@ -234,7 +234,13 @@ impl DisplayCanvas {
         let pill_h = 30.0;
 
         for m in &state.monitors {
-            let label = if m.is_internal() {
+            let label = if m.is_primary {
+                if m.is_internal() {
+                    format!("⭐ 💻 {}", m.name)
+                } else {
+                    format!("⭐ 🖥️ {}", m.name)
+                }
+            } else if m.is_internal() {
                 format!("💻 {}", m.name)
             } else {
                 format!("🖥️ {}", m.name)
@@ -246,6 +252,7 @@ impl DisplayCanvas {
             pills.push((m.name.clone(), curr_x, pill_y, pill_w, pill_h));
             curr_x += pill_w + 10.0;
         }
+
 
         pills
     }
@@ -503,6 +510,15 @@ impl DisplayCanvas {
 
             // 5. Badges
             let mut badge_offset_x = rx + 8.0;
+
+            if m.is_primary && m.enabled {
+                let badge_layout = pango::Layout::new(&pango_ctx);
+                badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#f9e2af'>⭐ PRIMARY</span>");
+                cr.move_to(badge_offset_x, ry + 6.0);
+                pangocairo::functions::show_layout(cr, &badge_layout);
+                badge_offset_x += 64.0;
+            }
+
             if m.is_internal() {
                 let badge_layout = pango::Layout::new(&pango_ctx);
                 badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#3584e4'>LAPTOP</span>");
@@ -510,6 +526,7 @@ impl DisplayCanvas {
                 pangocairo::functions::show_layout(cr, &badge_layout);
                 badge_offset_x += 48.0;
             }
+
 
             if m.mirror_of.is_some() {
                 let badge_layout = pango::Layout::new(&pango_ctx);

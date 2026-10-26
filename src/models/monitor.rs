@@ -16,6 +16,8 @@ pub struct Monitor {
 
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub is_primary: bool,
     pub active_mode: Mode,
     pub position: Point,
     #[serde(default = "default_scale")]
@@ -62,6 +64,8 @@ pub struct RawHyprlandMonitor {
     #[serde(default)]
     pub vrr: bool,
     #[serde(default)]
+    pub focused: bool,
+    #[serde(default)]
     pub disabled: bool,
     #[serde(default)]
     pub mirror_of: String,
@@ -85,6 +89,8 @@ impl From<RawHyprlandMonitor> for Monitor {
             Some(raw.mirror_of)
         };
 
+        let is_primary = !raw.disabled && (raw.focused || (raw.x == 0 && raw.y == 0));
+
         Self {
             id: raw.id,
             name: raw.name,
@@ -93,6 +99,7 @@ impl From<RawHyprlandMonitor> for Monitor {
             model: raw.model,
             serial: raw.serial,
             enabled: !raw.disabled,
+            is_primary,
             active_mode,
             position: Point::new(raw.x, raw.y),
             scale: if raw.scale > 0.0 { raw.scale } else { 1.0 },
@@ -103,6 +110,7 @@ impl From<RawHyprlandMonitor> for Monitor {
         }
     }
 }
+
 
 impl Monitor {
     /// Detects if this output is an integrated laptop display
@@ -209,6 +217,7 @@ mod tests {
             model: "0x123".to_string(),
             serial: "".to_string(),
             enabled: true,
+            is_primary: true,
             active_mode: Mode::new(1920, 1080, 144.0),
             position: Point::new(0, 0),
             scale: 1.0,
@@ -217,6 +226,7 @@ mod tests {
             available_modes: vec![],
             mirror_of: None,
         };
+
         assert!(internal.is_internal());
 
         let external = Monitor {
@@ -237,6 +247,7 @@ mod tests {
             model: "".to_string(),
             serial: "".to_string(),
             enabled: true,
+            is_primary: false,
             active_mode: Mode::new(3840, 2160, 60.0),
             position: Point::new(1920, 0),
             scale: 2.0,
@@ -267,6 +278,7 @@ mod tests {
             model: "".to_string(),
             serial: "".to_string(),
             enabled: true,
+            is_primary: true,
             active_mode: Mode::new(2560, 1440, 144.0),
             position: Point::new(1920, 0),
             scale: 1.25,
@@ -275,6 +287,7 @@ mod tests {
             available_modes: vec![],
             mirror_of: None,
         };
+
 
         assert_eq!(
             mon.to_hyprland_directive(),

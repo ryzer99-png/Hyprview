@@ -111,4 +111,17 @@ impl HyprctlClient {
 
         Ok(())
     }
+
+    /// Dispatches a command to Hyprland via `hyprctl dispatch <args>`
+    pub fn dispatch(cmd: &str) -> Result<()> {
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let mut command = Command::new("hyprctl");
+        command.arg("dispatch");
+        for part in parts {
+            command.arg(part);
+        }
+        let _ = command.output();
+        Ok(())
+    }
 }
+
