@@ -2,7 +2,7 @@ use crate::backend::{ConfigPersistence, HyprctlClient};
 use crate::models::{DisplayConfiguration, Monitor};
 use crate::safety::RollbackGuard;
 use crate::ui::canvas::DisplayCanvas;
-use crate::ui::dialogs::SafetyRollbackDialog;
+use crate::ui::dialogs::{SafetyRollbackDialog, OverlapWarningDialog};
 use crate::ui::settings::MonitorSettingsPanel;
 use gtk4::prelude::*;
 use libadwaita as adw;
@@ -21,6 +21,7 @@ pub struct AppState {
 pub struct MainAppWindow {
     pub window: adw::ApplicationWindow,
     toast_overlay: adw::ToastOverlay,
+    warning_banner: adw::Banner,
     canvas: DisplayCanvas,
     settings_panel: MonitorSettingsPanel,
     state: Rc<RefCell<AppState>>,
@@ -36,8 +37,16 @@ impl MainAppWindow {
 
         let toast_overlay = adw::ToastOverlay::new();
 
+        // Warning banner for invalid layout / overlaps
+        let warning_banner = adw::Banner::builder()
+            .button_label("Auto-Align")
+            .use_markup(false)
+            .revealed(false)
+            .build();
+
         // Header bar setup
         let header_bar = adw::HeaderBar::new();
+
 
         let reload_btn = gtk4::Button::builder()
             .icon_name("view-refresh-symbolic")
@@ -70,6 +79,8 @@ impl MainAppWindow {
         let state_select = Rc::clone(&state);
         let settings_select_cell: Rc<RefCell<Option<MonitorSettingsPanel>>> = Rc::new(RefCell::new(None));
         let settings_select_ref = Rc::clone(&settings_select_cell);
+        let banner_cell: Rc<RefCell<Option<adw::Banner>>> = Rc::new(RefCell::new(Some(warning_banner.clone())));
+        let banner_move_ref = Rc::clone(&banner_cell);
 
         let canvas = DisplayCanvas::new(
             move |name| {
@@ -84,6 +95,7 @@ impl MainAppWindow {
             {
                 let state_move = Rc::clone(&state);
                 let settings_move_ref = Rc::clone(&settings_select_cell);
+                let banner_ref = Rc::clone(&banner_move_ref);
                 move |name, x, y| {
                     let mut s = state_move.borrow_mut();
                     let is_selected = s.selected_monitor.as_deref() == Some(&name);
@@ -103,6 +115,23 @@ impl MainAppWindow {
                             panel.set_monitor(Some(mon), &all);
                         }
                     }
+
+                    if let Some(ref banner) = *banner_ref.borrow() {
+                        let overlaps = s.draft_config.find_extended_overlaps();
+                        if !overlaps.is_empty() {
+                            let names: Vec<String> = overlaps
+                                .iter()
+                                .map(|(a, b)| format!("'{}' and '{}'", a, b))
+                                .collect();
+                            banner.set_title(&format!(
+                                "Displays {} overlap! Extended monitors cannot share coordinates in Hyprland.",
+                                names.join(", ")
+                            ));
+                            banner.set_revealed(true);
+                        } else {
+                            banner.set_revealed(false);
+                        }
+                    }
                 }
             },
         );
@@ -110,11 +139,29 @@ impl MainAppWindow {
         // Create settings panel
         let state_update = Rc::clone(&state);
         let canvas_update = canvas.clone();
+        let banner_settings_ref = Rc::clone(&banner_cell);
         let settings_panel = MonitorSettingsPanel::new(move |updated_mon| {
             let mut s = state_update.borrow_mut();
             s.draft_config.monitors.insert(updated_mon.name.clone(), updated_mon);
             let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
             canvas_update.set_monitors(mon_list);
+
+            if let Some(ref banner) = *banner_settings_ref.borrow() {
+                let overlaps = s.draft_config.find_extended_overlaps();
+                if !overlaps.is_empty() {
+                    let names: Vec<String> = overlaps
+                        .iter()
+                        .map(|(a, b)| format!("'{}' and '{}'", a, b))
+                        .collect();
+                    banner.set_title(&format!(
+                        "Displays {} overlap! Extended monitors cannot share coordinates in Hyprland.",
+                        names.join(", ")
+                    ));
+                    banner.set_revealed(true);
+                } else {
+                    banner.set_revealed(false);
+                }
+            }
         });
 
         *settings_select_cell.borrow_mut() = Some(settings_panel.clone());
@@ -146,6 +193,7 @@ impl MainAppWindow {
             .build();
 
         main_box.append(&header_bar);
+        main_box.append(&warning_banner);
         main_box.append(&split_view);
 
         toast_overlay.set_child(Some(&main_box));
@@ -171,6 +219,7 @@ impl MainAppWindow {
         let app_window = Self {
             window,
             toast_overlay,
+            warning_banner,
             canvas,
             settings_panel,
             state,
@@ -190,21 +239,16 @@ impl MainAppWindow {
             app_reload.show_toast("Reloaded display configuration from Hyprland");
         });
 
-        // Auto-align action (resolves overlaps)
+        // Auto-align button action (resolves overlaps)
         let app_align = self.clone();
         auto_align_btn.connect_clicked(move |_| {
-            {
-                let mut s = app_align.state.borrow_mut();
-                s.draft_config.auto_arrange_side_by_side();
-                let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
-                app_align.canvas.set_monitors(mon_list.clone());
-                if let Some(ref sel) = s.selected_monitor {
-                    if let Some(mon) = s.draft_config.monitors.get(sel).cloned() {
-                        app_align.settings_panel.set_monitor(Some(mon), &mon_list);
-                    }
-                }
-            }
-            app_align.show_toast("Displays aligned side-by-side with zero overlap");
+            app_align.auto_align();
+        });
+
+        // Banner Auto-Align button action
+        let app_banner_align = self.clone();
+        self.warning_banner.connect_button_clicked(move |_| {
+            app_banner_align.auto_align();
         });
 
         // Apply action with 15-second safety rollback
@@ -212,6 +256,40 @@ impl MainAppWindow {
         apply_btn.connect_clicked(move |_| {
             app_apply.apply_changes();
         });
+    }
+
+    pub fn auto_align(&self) {
+        {
+            let mut s = self.state.borrow_mut();
+            s.draft_config.auto_arrange_side_by_side();
+            let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
+            self.canvas.set_monitors(mon_list.clone());
+            if let Some(ref sel) = s.selected_monitor {
+                if let Some(mon) = s.draft_config.monitors.get(sel).cloned() {
+                    self.settings_panel.set_monitor(Some(mon), &mon_list);
+                }
+            }
+        }
+        self.update_validation_status();
+        self.show_toast("Displays aligned side-by-side with zero overlap");
+    }
+
+    pub fn update_validation_status(&self) {
+        let s = self.state.borrow();
+        let overlaps = s.draft_config.find_extended_overlaps();
+        if !overlaps.is_empty() {
+            let names: Vec<String> = overlaps
+                .iter()
+                .map(|(a, b)| format!("'{}' and '{}'", a, b))
+                .collect();
+            self.warning_banner.set_title(&format!(
+                "Displays {} overlap! Extended monitors cannot share coordinates in Hyprland.",
+                names.join(", ")
+            ));
+            self.warning_banner.set_revealed(true);
+        } else {
+            self.warning_banner.set_revealed(false);
+        }
     }
 
     pub fn reload_monitors(&self) {
@@ -231,6 +309,8 @@ impl MainAppWindow {
                     let mon = s.draft_config.monitors.get(&name).cloned();
                     self.settings_panel.set_monitor(mon, &monitors);
                 }
+                drop(s);
+                self.update_validation_status();
             }
             Err(e) => {
                 error!("Failed to query monitors: {:#}", e);
@@ -252,11 +332,14 @@ impl MainAppWindow {
 
         let overlaps = draft.find_extended_overlaps();
         if !overlaps.is_empty() {
-            let names: Vec<String> = overlaps.iter().map(|(a, b)| format!("{} & {}", a, b)).collect();
-            self.show_toast(&format!(
-                "Invalid Layout: Displays {} overlap! Separate them or click Auto-Align.",
-                names.join(", ")
-            ));
+            let app_align = self.clone();
+            OverlapWarningDialog::show(
+                &self.window,
+                &overlaps,
+                move || {
+                    app_align.auto_align();
+                },
+            );
             return;
         }
 
@@ -311,6 +394,8 @@ impl MainAppWindow {
                         info!("Configuration persisted to {:?}", path);
                         let mut s = app_confirm.state.borrow_mut();
                         s.baseline_config = draft;
+                        drop(s);
+                        app_confirm.update_validation_status();
                         app_confirm.show_toast("Display settings kept and saved!");
                     }
                     Err(e) => {
@@ -332,8 +417,12 @@ impl MainAppWindow {
     }
 
     pub fn show_toast(&self, message: &str) {
-        let toast = adw::Toast::new(message);
-        toast.set_timeout(3);
+        let toast = adw::Toast::builder()
+            .title(message)
+            .use_markup(false)
+            .timeout(3)
+            .build();
         self.toast_overlay.add_toast(toast);
     }
 }
+

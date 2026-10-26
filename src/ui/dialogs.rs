@@ -73,7 +73,7 @@ impl SafetyRollbackDialog {
         let on_confirm_cell = Rc::new(RefCell::new(Some(on_confirm)));
         let on_revert_choose = Rc::clone(&on_revert_shared);
 
-        dialog.choose(Some(parent), None::<&gio::Cancellable>, move |response| {
+        dialog.choose(Some(parent), None::<&gtk4::gio::Cancellable>, move |response| {
             if *finished_response.borrow() {
                 return;
             }
@@ -93,3 +93,54 @@ impl SafetyRollbackDialog {
         });
     }
 }
+
+pub struct OverlapWarningDialog;
+
+impl OverlapWarningDialog {
+    /// Presents a modal alert dialog when extended displays overlap, preventing invalid layout apply.
+    pub fn show<FAlign>(
+        parent: &impl IsA<gtk4::Widget>,
+        overlap_pairs: &[(String, String)],
+        on_auto_align: FAlign,
+    ) where
+        FAlign: FnOnce() + 'static,
+    {
+        let pairs: Vec<String> = overlap_pairs
+            .iter()
+            .map(|(a, b)| format!("'{}' and '{}'", a, b))
+            .collect();
+        let display_names = pairs.join(", ");
+
+        let body = format!(
+            "Displays {} are currently overlapping.\n\n\
+            In Extended Mode, Hyprland requires each monitor to have its own independent coordinates. Overlapping extended monitors breaks cursor movement and window positioning.\n\n\
+            How to resolve:\n\
+            • Click 'Auto-Align' to position them neatly side-by-side with zero overlap.\n\
+            • Or drag them apart manually on the visual canvas.\n\
+            • Or enable Mirror Mode in display settings to duplicate your screen.",
+            display_names
+        );
+
+        let dialog = adw::AlertDialog::builder()
+            .heading("Displays Cannot Overlap")
+            .body(&body)
+            .build();
+
+        dialog.add_response("cancel", "Dismiss");
+        dialog.add_response("auto_align", "Auto-Align Side-by-Side");
+        dialog.set_response_appearance("auto_align", adw::ResponseAppearance::Suggested);
+        dialog.set_default_response(Some("auto_align"));
+        dialog.set_close_response("cancel");
+
+        let on_auto_align_cell = Rc::new(RefCell::new(Some(on_auto_align)));
+
+        dialog.choose(Some(parent), None::<&gtk4::gio::Cancellable>, move |response| {
+            if response == "auto_align" {
+                if let Some(align) = on_auto_align_cell.borrow_mut().take() {
+                    align();
+                }
+            }
+        });
+    }
+}
+

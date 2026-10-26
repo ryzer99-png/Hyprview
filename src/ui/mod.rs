@@ -5,5 +5,6 @@ pub mod settings;
 
 pub use app::MainAppWindow;
 pub use canvas::DisplayCanvas;
-pub use dialogs::SafetyRollbackDialog;
+pub use dialogs::{SafetyRollbackDialog, OverlapWarningDialog};
 pub use settings::MonitorSettingsPanel;
+

@@ -220,4 +220,31 @@ mod tests {
         assert!(content.contains("monitor = DP-1, disable"));
         assert!(content.contains("monitor = eDP-1, 1920x1080@60.00, 0x0, 1.00"));
     }
+
+    #[test]
+    fn test_find_extended_overlaps_and_auto_arrange() {
+        // Two overlapping monitors at (0, 0)
+        let mut config = DisplayConfiguration::new(vec![
+            dummy_monitor("eDP-1", 0, true),
+            dummy_monitor("HDMI-A-1", 500, true), // overlaps eDP-1 (width 1920)
+        ]);
+
+        let overlaps = config.find_extended_overlaps();
+        assert_eq!(overlaps.len(), 1);
+        assert_eq!(overlaps[0], ("eDP-1".to_string(), "HDMI-A-1".to_string()));
+
+        // Now auto-arrange side by side
+        config.auto_arrange_side_by_side();
+        let remaining_overlaps = config.find_extended_overlaps();
+        assert!(remaining_overlaps.is_empty(), "Auto-arrange must eliminate all overlaps");
+
+        // Verify mirrored monitors do not trigger overlap error
+        let mut mirrored_config = DisplayConfiguration::new(vec![
+            dummy_monitor("eDP-1", 0, true),
+            dummy_monitor("HDMI-A-1", 0, true),
+        ]);
+        mirrored_config.monitors.get_mut("HDMI-A-1").unwrap().mirror_of = Some("eDP-1".to_string());
+        assert!(mirrored_config.find_extended_overlaps().is_empty(), "Mirrored displays should not count as invalid overlaps");
+    }
 }
+
