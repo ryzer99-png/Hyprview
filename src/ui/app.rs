@@ -71,7 +71,8 @@ impl MainAppWindow {
                 s.selected_monitor = Some(name.clone());
                 if let Some(ref panel) = *settings_select_ref.borrow() {
                     let mon = s.draft_config.monitors.get(&name).cloned();
-                    panel.set_monitor(mon);
+                    let all: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
+                    panel.set_monitor(mon, &all);
                 }
             },
             {
@@ -92,7 +93,8 @@ impl MainAppWindow {
 
                     if let Some(mon) = updated_mon {
                         if let Some(ref panel) = *settings_move_ref.borrow() {
-                            panel.set_monitor(Some(mon));
+                            let all: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
+                            panel.set_monitor(Some(mon), &all);
                         }
                     }
                 }
@@ -200,11 +202,11 @@ impl MainAppWindow {
                 let first_name = monitors.first().map(|m| m.name.clone());
                 s.selected_monitor = first_name.clone();
 
-                self.canvas.set_monitors(monitors);
+                self.canvas.set_monitors(monitors.clone());
                 if let Some(name) = first_name {
                     self.canvas.set_selected(name.clone());
                     let mon = s.draft_config.monitors.get(&name).cloned();
-                    self.settings_panel.set_monitor(mon);
+                    self.settings_panel.set_monitor(mon, &monitors);
                 }
             }
             Err(e) => {

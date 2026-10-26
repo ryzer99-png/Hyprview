@@ -320,17 +320,22 @@ impl DisplayCanvas {
             let pango_ctx = area.pango_context();
             let layout = pango::Layout::new(&pango_ctx);
 
-            let label_markup = if m.enabled {
+            let label_markup = if !m.enabled {
+                format!(
+                    "<span font_desc='Sans Bold 11' color='#808080'>{}</span>\n<span font_desc='Sans 9' color='#606060'>[Disabled]</span>",
+                    m.name
+                )
+            } else if let Some(ref target) = m.mirror_of {
+                format!(
+                    "<span font_desc='Sans Bold 11' color='white'>{}</span>\n<span font_desc='Sans 9' color='#89b4fa'>🪞 Mirror of {}</span>",
+                    m.name, target
+                )
+            } else {
                 format!(
                     "<span font_desc='Sans Bold 11' color='white'>{}</span>\n<span font_desc='Sans 9' color='#9aa0a6'>{} ({:.0}%)</span>",
                     m.name,
                     m.active_mode,
                     m.scale * 100.0
-                )
-            } else {
-                format!(
-                    "<span font_desc='Sans Bold 11' color='#808080'>{}</span>\n<span font_desc='Sans 9' color='#606060'>[Disabled]</span>",
-                    m.name
                 )
             };
 
@@ -344,11 +349,20 @@ impl DisplayCanvas {
             cr.move_to(text_x, text_y);
             pangocairo::functions::show_layout(cr, &layout);
 
-            // Badge for Internal/Primary
+            // Badges
+            let mut badge_offset_x = rx + 8.0;
             if m.is_internal() {
                 let badge_layout = pango::Layout::new(&pango_ctx);
                 badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#3584e4'>LAPTOP</span>");
-                cr.move_to(rx + 8.0, ry + 6.0);
+                cr.move_to(badge_offset_x, ry + 6.0);
+                pangocairo::functions::show_layout(cr, &badge_layout);
+                badge_offset_x += 48.0;
+            }
+
+            if m.mirror_of.is_some() {
+                let badge_layout = pango::Layout::new(&pango_ctx);
+                badge_layout.set_markup("<span font_desc='Sans Bold 7' color='#a6e3a1'>MIRROR</span>");
+                cr.move_to(badge_offset_x, ry + 6.0);
                 pangocairo::functions::show_layout(cr, &badge_layout);
             }
         }
