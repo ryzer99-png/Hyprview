@@ -96,29 +96,40 @@ impl MonitorSettingsPanel {
             .subtitle("UI scaling factor")
             .build();
 
-        let scale_box = gtk4::Box::builder()
-            .orientation(gtk4::Orientation::Horizontal)
-            .spacing(8)
-            .valign(gtk4::Align::Center)
-            .build();
-
-        let scale_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 1.0, 3.0, 0.25);
-        scale_scale.set_width_request(110);
-        scale_scale.set_value(1.0);
-        scale_scale.add_mark(1.0, gtk4::PositionType::Bottom, Some("100%"));
-        scale_scale.add_mark(1.25, gtk4::PositionType::Bottom, None);
-        scale_scale.add_mark(1.5, gtk4::PositionType::Bottom, Some("150%"));
-        scale_scale.add_mark(2.0, gtk4::PositionType::Bottom, Some("200%"));
-
         let scale_label = gtk4::Label::builder()
             .label("100%")
-            .width_chars(5)
+            .css_classes(["heading", "accent"])
+            .valign(gtk4::Align::Center)
+            .build();
+        scale_row.add_suffix(&scale_label);
+        group.add(&scale_row);
+
+        let scale_box_row = adw::PreferencesRow::builder()
+            .activatable(false)
+            .selectable(false)
             .build();
 
-        scale_box.append(&scale_scale);
-        scale_box.append(&scale_label);
-        scale_row.add_suffix(&scale_box);
-        group.add(&scale_row);
+        let slider_container = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Vertical)
+            .spacing(4)
+            .margin_start(16)
+            .margin_end(16)
+            .margin_top(8)
+            .margin_bottom(12)
+            .build();
+
+        let scale_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 1.0, 2.5, 0.25);
+        scale_scale.set_hexpand(true);
+        scale_scale.set_value(1.0);
+        scale_scale.add_mark(1.0, gtk4::PositionType::Bottom, Some("100%"));
+        scale_scale.add_mark(1.25, gtk4::PositionType::Bottom, Some("125%"));
+        scale_scale.add_mark(1.5, gtk4::PositionType::Bottom, Some("150%"));
+        scale_scale.add_mark(1.75, gtk4::PositionType::Bottom, Some("175%"));
+        scale_scale.add_mark(2.0, gtk4::PositionType::Bottom, Some("200%"));
+
+        slider_container.append(&scale_scale);
+        scale_box_row.set_child(Some(&slider_container));
+        group.add(&scale_box_row);
 
         // 4. Transform / Orientation
         let transform_model = gtk4::StringList::new(&[
