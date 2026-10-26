@@ -6,7 +6,7 @@ use gtk4::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct DragState {
     pub monitor_name: String,
     pub original_x: i32,
@@ -65,7 +65,7 @@ impl DisplayCanvas {
             let w = click_widget.width() as f64;
             let h = click_widget.height() as f64;
 
-            if let Some(name) = Self::hit_test(&s, x, y, w, h) {
+            if let Some(name) = Self::hit_test(&s, &click_widget, x, y, w, h) {
                 s.selected_name = Some(name.clone());
                 click_widget.queue_draw();
                 on_select_clone(name);
@@ -87,7 +87,12 @@ impl DisplayCanvas {
             let w = drag_widget_start.width() as f64;
             let h = drag_widget_start.height() as f64;
 
-            if let Some(name) = Self::hit_test(&s, x, y, w, h) {
+            // Don't drag if clicked on the top pills
+            if y <= 48.0 {
+                return;
+            }
+
+            if let Some(name) = Self::hit_test(&s, &drag_widget_start, x, y, w, h) {
                 let mon_pos = s
                     .monitors
                     .iter()
@@ -198,21 +203,19 @@ impl DisplayCanvas {
             if y + h > max_y { max_y = y + h; }
         }
 
-        // Add 300px logical padding
         let padding = 200.0;
         let total_w = (max_x - min_x + padding * 2.0).max(1000.0);
         let total_h = (max_y - min_y + padding * 2.0).max(800.0);
 
         let scale_x = canvas_w / total_w;
-        let scale_y = canvas_h / total_h;
+        let scale_y = (canvas_h - 50.0) / total_h; // leave 50px for top pill bar
         let scale = scale_x.min(scale_y).clamp(0.05, 0.45);
 
-        // Center in canvas
         let bounding_center_x = (min_x + max_x) / 2.0;
         let bounding_center_y = (min_y + max_y) / 2.0;
 
         let canvas_center_x = canvas_w / 2.0;
-        let canvas_center_y = canvas_h / 2.0;
+        let canvas_center_y = (canvas_h + 30.0) / 2.0;
 
         let origin_x = canvas_center_x - bounding_center_x * scale;
         let origin_y = canvas_center_y - bounding_center_y * scale;
@@ -220,20 +223,93 @@ impl DisplayCanvas {
         (scale, origin_x, origin_y)
     }
 
+    /// Computes layout rectangles for the top monitor quick-selection pills
+    fn get_pill_rects(state: &DisplayCanvasState, area: &gtk4::DrawingArea) -> Vec<(String, f64, f64, f64, f64)> {
+        let pango_ctx = area.pango_context();
+        let layout = pango::Layout::new(&pango_ctx);
+
+        let mut pills = Vec::new();
+        let mut curr_x = 16.0;
+        let pill_y = 12.0;
+        let pill_h = 30.0;
+
+        for m in &state.monitors {
+            let label = if m.is_internal() {
+                format!("💻 {}", m.name)
+            } else {
+                format!("🖥️ {}", m.name)
+            };
+            layout.set_text(&label);
+            let (w, _) = layout.pixel_size();
+            let pill_w = (w as f64 + 28.0).max(80.0);
+
+            pills.push((m.name.clone(), curr_x, pill_y, pill_w, pill_h));
+            curr_x += pill_w + 10.0;
+        }
+
+        pills
+    }
+
+    /// Calculates visual cascade offset when two displays share identical coordinates (e.g. mirrored)
+    fn get_stack_offset(mon: &Monitor, state: &DisplayCanvasState) -> (f64, f64) {
+        let same_pos: Vec<&Monitor> = state
+            .monitors
+            .iter()
+            .filter(|other| other.position.x == mon.position.x && other.position.y == mon.position.y)
+            .collect();
+
+        if same_pos.len() <= 1 {
+            return (0.0, 0.0);
+        }
+
+        // If this is the selected monitor, keep it front and centered or slightly elevated
+        let is_selected = state.selected_name.as_deref() == Some(&mon.name);
+        if is_selected {
+            (0.0, 0.0)
+        } else {
+            // Find index of this unselected monitor in the stack
+            let idx = same_pos
+                .iter()
+                .position(|m| m.name == mon.name)
+                .unwrap_or(0);
+            let offset = (idx as f64 + 1.0) * 16.0;
+            (-offset, -offset)
+        }
+    }
+
     fn hit_test(
         state: &DisplayCanvasState,
+        area: &gtk4::DrawingArea,
         click_x: f64,
         click_y: f64,
         canvas_w: f64,
         canvas_h: f64,
     ) -> Option<String> {
+        // 1. Check top pill bar first
+        let pills = Self::get_pill_rects(state, area);
+        for (name, px, py, pw, ph) in pills {
+            if click_x >= px && click_x <= px + pw && click_y >= py && click_y <= py + ph {
+                return Some(name);
+            }
+        }
+
+        // 2. Check cards in Z-order: check selected monitor first, then others
         let (scale, origin_x, origin_y) = Self::get_transform(state, canvas_w, canvas_h);
 
-        // Reverse search so topmost monitor gets hit first
-        for m in state.monitors.iter().rev() {
+        let mut sorted_monitors: Vec<&Monitor> = state.monitors.iter().collect();
+        // Sort so selected monitor is checked first
+        sorted_monitors.sort_by(|a, b| {
+            let a_selected = state.selected_name.as_deref() == Some(&a.name);
+            let b_selected = state.selected_name.as_deref() == Some(&b.name);
+            b_selected.cmp(&a_selected)
+        });
+
+        for m in sorted_monitors {
             let (w, h) = m.logical_size();
-            let rect_x = origin_x + m.position.x as f64 * scale;
-            let rect_y = origin_y + m.position.y as f64 * scale;
+            let (stack_x, stack_y) = Self::get_stack_offset(m, state);
+
+            let rect_x = origin_x + m.position.x as f64 * scale + stack_x;
+            let rect_y = origin_y + m.position.y as f64 * scale + stack_y;
             let rect_w = w * scale;
             let rect_h = h * scale;
 
@@ -245,6 +321,7 @@ impl DisplayCanvas {
                 return Some(m.name.clone());
             }
         }
+
         None
     }
 
@@ -255,69 +332,137 @@ impl DisplayCanvas {
         width: f64,
         height: f64,
     ) {
-        // Background: modern dark slate canvas
-        cr.set_source_rgb(0.12, 0.13, 0.15); // #1f2126
+        // Canvas background
+        cr.set_source_rgb(0.11, 0.12, 0.14); // #1c1d21
         let _ = cr.paint();
 
-        // Draw subtle dot grid
-        cr.set_source_rgba(1.0, 1.0, 1.0, 0.05);
+        // Subtle dot grid
+        cr.set_source_rgba(1.0, 1.0, 1.0, 0.04);
         let grid_step = 24.0;
-        let mut x = 0.0;
-        while x < width {
-            let mut y = 0.0;
-            while y < height {
-                cr.arc(x, y, 1.2, 0.0, std::f64::consts::TAU);
+        let mut gx = 0.0;
+        while gx < width {
+            let mut gy = 0.0;
+            while gy < height {
+                cr.arc(gx, gy, 1.2, 0.0, std::f64::consts::TAU);
                 let _ = cr.fill();
-                y += grid_step;
+                gy += grid_step;
             }
-            x += grid_step;
+            gx += grid_step;
         }
 
         if state.monitors.is_empty() {
             return;
         }
 
+        // Draw Top Quick-Selection Pills
+        let pills = Self::get_pill_rects(state, area);
+        let pango_ctx = area.pango_context();
+        let pill_layout = pango::Layout::new(&pango_ctx);
+
+        for (name, px, py, pw, ph) in &pills {
+            let is_sel = state.selected_name.as_deref() == Some(name);
+
+            // Pill background
+            if is_sel {
+                cr.set_source_rgb(0.21, 0.51, 0.96); // #3584e4 accent blue
+            } else {
+                cr.set_source_rgba(0.18, 0.20, 0.24, 0.95);
+            }
+            draw_rounded_rect(cr, *px, *py, *pw, *ph, ph / 2.0);
+            let _ = cr.fill();
+
+            // Pill border
+            if is_sel {
+                cr.set_source_rgba(1.0, 1.0, 1.0, 0.35);
+                cr.set_line_width(1.5);
+            } else {
+                cr.set_source_rgba(0.35, 0.38, 0.45, 0.6);
+                cr.set_line_width(1.0);
+            }
+            draw_rounded_rect(cr, *px, *py, *pw, *ph, ph / 2.0);
+            let _ = cr.stroke();
+
+            // Pill text
+            let is_internal = state.monitors.iter().find(|m| &m.name == name).map_or(false, |m| m.is_internal());
+            let icon = if is_internal { "💻" } else { "🖥️" };
+            let pill_text = format!(
+                "<span font_desc='Sans Bold 9' color='{}'>{} {}</span>",
+                if is_sel { "#ffffff" } else { "#cdd6f4" },
+                icon,
+                name
+            );
+            pill_layout.set_markup(&pill_text);
+            let (tw, th) = pill_layout.pixel_size();
+            cr.move_to(px + (pw - tw as f64) / 2.0, py + (ph - th as f64) / 2.0);
+            pangocairo::functions::show_layout(cr, &pill_layout);
+        }
+
+        // Prepare monitors for drawing:
+        // Sort so unselected are drawn FIRST, and selected monitor is drawn LAST (on top)
         let (scale, origin_x, origin_y) = Self::get_transform(state, width, height);
 
-        for m in &state.monitors {
+        let mut sorted_monitors: Vec<&Monitor> = state.monitors.iter().collect();
+        sorted_monitors.sort_by(|a, b| {
+            let a_selected = state.selected_name.as_deref() == Some(&a.name);
+            let b_selected = state.selected_name.as_deref() == Some(&b.name);
+            a_selected.cmp(&b_selected)
+        });
+
+        for m in sorted_monitors {
             let is_selected = state.selected_name.as_deref() == Some(&m.name);
             let (log_w, log_h) = m.logical_size();
+            let (stack_x, stack_y) = Self::get_stack_offset(m, state);
 
-            let rx = origin_x + m.position.x as f64 * scale;
-            let ry = origin_y + m.position.y as f64 * scale;
+            let rx = origin_x + m.position.x as f64 * scale + stack_x;
+            let ry = origin_y + m.position.y as f64 * scale + stack_y;
             let rw = log_w * scale;
             let rh = log_h * scale;
 
-            // Draw monitor card background
+            // 1. Drop shadow (elevated shadow for selected card)
+            if is_selected {
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.55);
+                draw_rounded_rect(cr, rx + 4.0, ry + 8.0, rw, rh, 12.0);
+                let _ = cr.fill();
+            } else {
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.35);
+                draw_rounded_rect(cr, rx + 2.0, ry + 4.0, rw, rh, 10.0);
+                let _ = cr.fill();
+            }
+
+            // 2. Card background: translucent glassmorphism so overlapping cards are distinguishable
             if m.enabled {
                 if is_selected {
-                    cr.set_source_rgb(0.22, 0.25, 0.32); // active card
+                    cr.set_source_rgba(0.18, 0.22, 0.30, 0.94);
+                } else if m.mirror_of.is_some() {
+                    cr.set_source_rgba(0.14, 0.18, 0.24, 0.85); // mirrored card
                 } else {
-                    cr.set_source_rgb(0.18, 0.19, 0.23); // normal card
+                    cr.set_source_rgba(0.15, 0.16, 0.20, 0.88); // normal card
                 }
             } else {
-                cr.set_source_rgba(0.16, 0.16, 0.18, 0.6); // disabled card
+                cr.set_source_rgba(0.12, 0.12, 0.14, 0.65); // disabled card
             }
 
             draw_rounded_rect(cr, rx, ry, rw, rh, 10.0);
             let _ = cr.fill();
 
-            // Border
+            // 3. Border with high contrast
             if is_selected {
                 cr.set_source_rgb(0.21, 0.51, 0.96); // Libadwaita accent blue #3584e4
-                cr.set_line_width(2.5);
+                cr.set_line_width(2.8);
+            } else if m.mirror_of.is_some() {
+                cr.set_source_rgba(0.65, 0.89, 0.63, 0.8); // soft green border for mirrored
+                cr.set_line_width(1.8);
             } else if m.enabled {
-                cr.set_source_rgb(0.30, 0.32, 0.38);
+                cr.set_source_rgba(0.38, 0.40, 0.48, 0.8);
                 cr.set_line_width(1.2);
             } else {
-                cr.set_source_rgba(0.3, 0.3, 0.3, 0.4);
+                cr.set_source_rgba(0.30, 0.30, 0.30, 0.4);
                 cr.set_line_width(1.0);
             }
             draw_rounded_rect(cr, rx, ry, rw, rh, 10.0);
             let _ = cr.stroke();
 
-            // Monitor labels using Pango
-            let pango_ctx = area.pango_context();
+            // 4. Labels
             let layout = pango::Layout::new(&pango_ctx);
 
             let label_markup = if !m.enabled {
@@ -327,7 +472,7 @@ impl DisplayCanvas {
                 )
             } else if let Some(ref target) = m.mirror_of {
                 format!(
-                    "<span font_desc='Sans Bold 11' color='white'>{}</span>\n<span font_desc='Sans 9' color='#89b4fa'>🪞 Mirror of {}</span>",
+                    "<span font_desc='Sans Bold 11' color='white'>{}</span>\n<span font_desc='Sans 9' color='#a6e3a1'>🪞 Mirror of {}</span>",
                     m.name, target
                 )
             } else {
@@ -349,7 +494,7 @@ impl DisplayCanvas {
             cr.move_to(text_x, text_y);
             pangocairo::functions::show_layout(cr, &layout);
 
-            // Badges
+            // 5. Badges
             let mut badge_offset_x = rx + 8.0;
             if m.is_internal() {
                 let badge_layout = pango::Layout::new(&pango_ctx);
