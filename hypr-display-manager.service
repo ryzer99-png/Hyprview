@@ -1,0 +1,13 @@
+[Unit]
+Description=Hyprland Display Manager Rescue Daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/hypr-display-manager --daemon
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=graphical-session.target
