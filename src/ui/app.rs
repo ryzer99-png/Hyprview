@@ -225,15 +225,26 @@ impl MainAppWindow {
             return;
         }
 
-        let commands = baseline.calculate_hyprctl_commands(&draft);
-        if commands.is_empty() {
+        let changed_monitors: Vec<Monitor> = draft
+            .monitors
+            .values()
+            .filter(|target_mon| {
+                match baseline.monitors.get(&target_mon.name) {
+                    Some(curr) => curr != *target_mon,
+                    None => true,
+                }
+            })
+            .cloned()
+            .collect();
+
+        if changed_monitors.is_empty() {
             self.show_toast("No changes detected.");
             return;
         }
 
         info!("Applying candidate display configuration to Hyprland...");
-        if let Err(e) = HyprctlClient::apply_directives(&commands) {
-            error!("Failed to apply display commands: {:#}", e);
+        if let Err(e) = HyprctlClient::apply_monitors(&changed_monitors) {
+            error!("Failed to apply display configuration: {:#}", e);
             self.show_toast(&format!("Failed to apply: {}", e));
             return;
         }
@@ -244,18 +255,28 @@ impl MainAppWindow {
 
         let app_confirm = self.clone();
         let app_revert = self.clone();
-        let revert_commands = draft.calculate_hyprctl_commands(&baseline);
+        let revert_monitors: Vec<Monitor> = baseline
+            .monitors
+            .values()
+            .filter(|target_mon| {
+                match draft.monitors.get(&target_mon.name) {
+                    Some(curr) => curr != *target_mon,
+                    None => true,
+                }
+            })
+            .cloned()
+            .collect();
 
         SafetyRollbackDialog::show(
             &self.window,
             move || {
-                // User confirmed: persist to monitors.conf
+                // User confirmed: persist to monitors.lua / monitors.conf
                 match ConfigPersistence::save(&draft) {
                     Ok(path) => {
                         info!("Configuration persisted to {:?}", path);
                         let mut s = app_confirm.state.borrow_mut();
                         s.baseline_config = draft;
-                        app_confirm.show_toast("Display settings kept and saved to monitors.conf!");
+                        app_confirm.show_toast("Display settings kept and saved!");
                     }
                     Err(e) => {
                         error!("Failed to save configuration: {:#}", e);
@@ -266,7 +287,7 @@ impl MainAppWindow {
             move || {
                 // User canceled or timeout expired: rollback immediately
                 info!("Executing rollback to previous baseline configuration...");
-                if let Err(e) = HyprctlClient::apply_directives(&revert_commands) {
+                if let Err(e) = HyprctlClient::apply_monitors(&revert_monitors) {
                     error!("Critical error during rollback: {:#}", e);
                 }
                 app_revert.reload_monitors();

@@ -165,6 +165,34 @@ impl Monitor {
             vrr_idx
         )
     }
+
+    /// Formats as a Hyprland Lua directive for modern Hyprland (0.50+ / hyprland.lua):
+    /// Example: `hl.monitor({ output = "eDP-1", mode = "1920x1080@144.00", position = "0x0", scale = 1.0, transform = 0, vrr = 0 })`
+    pub fn to_lua_directive(&self) -> String {
+        if !self.enabled {
+            return format!(r#"hl.monitor({{ output = "{}", disabled = true }})"#, self.name);
+        }
+
+        if let Some(ref target) = self.mirror_of {
+            return format!(r#"hl.monitor({{ output = "{}", mirror = "{}" }})"#, self.name, target);
+        }
+
+        let transform_idx = self.transform as i32;
+        let vrr_idx = if self.vrr { 1 } else { 0 };
+
+        format!(
+            r#"hl.monitor({{ output = "{}", mode = "{}x{}@{:.2}", position = "{}x{}", scale = {:.2}, transform = {}, vrr = {} }})"#,
+            self.name,
+            self.active_mode.resolution.width,
+            self.active_mode.resolution.height,
+            self.active_mode.refresh_rate,
+            self.position.x,
+            self.position.y,
+            self.scale,
+            transform_idx,
+            vrr_idx
+        )
+    }
 }
 
 #[cfg(test)]
