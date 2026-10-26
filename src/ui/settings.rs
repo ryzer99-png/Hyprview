@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct MonitorSettingsPanel {
-    pub widget: gtk4::Box,
+    pub widget: gtk4::ScrolledWindow,
     update_fn: Rc<RefCell<Option<Box<dyn Fn(Monitor)>>>>,
     current_monitor: Rc<RefCell<Option<Monitor>>>,
     suppress_events: Rc<RefCell<bool>>,
@@ -35,7 +35,13 @@ impl MonitorSettingsPanel {
             .margin_end(16)
             .margin_top(16)
             .margin_bottom(16)
-            .width_request(340)
+            .build();
+
+        let scrolled_window = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vscrollbar_policy(gtk4::PolicyType::Automatic)
+            .min_content_width(380)
+            .child(&root)
             .build();
 
         let title_label = gtk4::Label::builder()
@@ -122,7 +128,7 @@ impl MonitorSettingsPanel {
         let suppress_events = Rc::new(RefCell::new(false));
 
         let panel = Self {
-            widget: root,
+            widget: scrolled_window,
             update_fn,
             current_monitor,
             suppress_events,
