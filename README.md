@@ -52,16 +52,27 @@ cargo run -- --daemon
 
 ## Hyprland Configuration Integration
 
-To ensure your layout loads at Hyprland startup, add this line to your `~/.config/hypr/hyprland.conf`:
+To ensure your displays load at Hyprland startup:
 
-```ini
-source = ~/.config/hypr/monitors.conf
+### If using Lua configuration (`hyprland.lua`):
+Add to `~/.config/hypr/hyprland.lua` (or `~/.config/hypr/conf/autostart.lua`):
+```lua
+-- Rescue daemon: guarantees laptop screen is re-enabled if external monitor is disconnected
+exec-once = hypr-display-manager --daemon
 ```
 
-And to run the rescue daemon in the background on login:
-
+### If using legacy configuration (`hyprland.conf`):
+Add to `~/.config/hypr/hyprland.conf`:
 ```ini
+source = ~/.config/hypr/monitors.conf
 exec-once = hypr-display-manager --daemon
+```
+
+### Emergency Hotkey
+You can also bind an instant recovery hotkey in Hyprland:
+```ini
+# Instantly recovers the laptop screen if all external displays are gone
+bind = $mainMod SHIFT, Escape, exec, hypr-display-manager --rescue
 ```
 
 ---

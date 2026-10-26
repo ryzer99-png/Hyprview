@@ -22,6 +22,10 @@ struct Args {
     #[arg(short, long)]
     daemon: bool,
 
+    /// Trigger an immediate one-shot rescue check and exit (ideal for emergency keybindings)
+    #[arg(short, long)]
+    rescue: bool,
+
     /// Test Hyprland IPC connection and print detected monitors
     #[arg(long)]
     test_ipc: bool,
@@ -41,6 +45,18 @@ fn main() -> Result<()> {
         info!("Starting in rescue daemon mode...");
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(daemon::RescueDaemon::run())?;
+        return Ok(());
+    }
+
+    if args.rescue {
+        info!("Running one-shot display rescue check...");
+        let rt = tokio::runtime::Runtime::new()?;
+        let rescued = rt.block_on(daemon::RescueDaemon::evaluate_rescue())?;
+        if rescued {
+            println!("Rescue triggered: Restored disabled internal display.");
+        } else {
+            println!("Rescue check complete: No emergency display recovery needed.");
+        }
         return Ok(());
     }
 
