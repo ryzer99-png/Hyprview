@@ -1,5 +1,6 @@
 use crate::models::geometry::Transform;
 use crate::models::Monitor;
+use gtk4::pango;
 use gtk4::prelude::*;
 use libadwaita as adw;
 use adw::prelude::*;
@@ -15,6 +16,7 @@ pub struct MonitorSettingsPanel {
 
     // Widgets
     title_label: gtk4::Label,
+    subtitle_label: gtk4::Label,
     enabled_switch: adw::SwitchRow,
     modes_combo: adw::ComboRow,
     scale_scale: gtk4::Scale,
@@ -30,29 +32,48 @@ impl MonitorSettingsPanel {
     {
         let root = gtk4::Box::builder()
             .orientation(gtk4::Orientation::Vertical)
-            .spacing(12)
-            .margin_start(16)
-            .margin_end(16)
-            .margin_top(16)
-            .margin_bottom(16)
+            .spacing(16)
+            .margin_start(18)
+            .margin_end(18)
+            .margin_top(18)
+            .margin_bottom(18)
             .build();
 
         let scrolled_window = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
             .vscrollbar_policy(gtk4::PolicyType::Automatic)
-            .min_content_width(380)
+            .min_content_width(320)
             .child(&root)
+            .build();
+
+        // Header section: Clean Title + Subtitle
+        let header_box = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Vertical)
+            .spacing(4)
             .build();
 
         let title_label = gtk4::Label::builder()
             .label("Select a display")
-            .css_classes(["title-3"])
+            .css_classes(["title-2"])
             .halign(gtk4::Align::Start)
+            .wrap(true)
+            .wrap_mode(pango::WrapMode::WordChar)
             .build();
-        root.append(&title_label);
+
+        let subtitle_label = gtk4::Label::builder()
+            .label("")
+            .css_classes(["caption", "dim-label"])
+            .halign(gtk4::Align::Start)
+            .wrap(true)
+            .wrap_mode(pango::WrapMode::WordChar)
+            .build();
+
+        header_box.append(&title_label);
+        header_box.append(&subtitle_label);
+        root.append(&header_box);
 
         let group = adw::PreferencesGroup::builder()
-            .title("Display Settings")
+            .title("Display Configuration")
             .build();
 
         // 1. Enable Switch
@@ -72,7 +93,7 @@ impl MonitorSettingsPanel {
         // 3. Fractional Scale
         let scale_row = adw::ActionRow::builder()
             .title("Scale")
-            .subtitle("Adjust UI scaling")
+            .subtitle("UI scaling factor")
             .build();
 
         let scale_box = gtk4::Box::builder()
@@ -82,7 +103,7 @@ impl MonitorSettingsPanel {
             .build();
 
         let scale_scale = gtk4::Scale::with_range(gtk4::Orientation::Horizontal, 1.0, 3.0, 0.25);
-        scale_scale.set_width_request(140);
+        scale_scale.set_width_request(110);
         scale_scale.set_value(1.0);
         scale_scale.add_mark(1.0, gtk4::PositionType::Bottom, Some("100%"));
         scale_scale.add_mark(1.25, gtk4::PositionType::Bottom, None);
@@ -133,6 +154,7 @@ impl MonitorSettingsPanel {
             current_monitor,
             suppress_events,
             title_label,
+            subtitle_label,
             enabled_switch,
             modes_combo,
             scale_scale,
@@ -239,7 +261,17 @@ impl MonitorSettingsPanel {
 
         if let Some(m) = monitor {
             self.widget.set_visible(true);
-            self.title_label.set_label(&format!("{} ({})", m.name, if m.description.is_empty() { "Display" } else { &m.description }));
+            self.title_label.set_label(&m.name);
+
+            let desc = if !m.make.is_empty() || !m.model.is_empty() {
+                format!("{} {}", m.make, m.model).trim().to_string()
+            } else if !m.description.is_empty() {
+                m.description.clone()
+            } else {
+                "Connected Display".to_string()
+            };
+            self.subtitle_label.set_label(&desc);
+
             self.enabled_switch.set_active(m.enabled);
 
             // Populate modes
@@ -275,6 +307,7 @@ impl MonitorSettingsPanel {
             self.vrr_switch.set_active(m.vrr);
         } else {
             self.title_label.set_label("No display selected");
+            self.subtitle_label.set_label("Click a monitor in the canvas to adjust its settings");
             self.widget.set_visible(false);
         }
 

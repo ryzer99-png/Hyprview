@@ -6,6 +6,7 @@ use crate::ui::dialogs::SafetyRollbackDialog;
 use crate::ui::settings::MonitorSettingsPanel;
 use gtk4::prelude::*;
 use libadwaita as adw;
+use adw::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use tracing::{error, info};
@@ -44,20 +45,20 @@ impl MainAppWindow {
             .build();
         header_bar.pack_start(&reload_btn);
 
+        let sidebar_toggle_btn = gtk4::ToggleButton::builder()
+            .icon_name("view-right-pane-symbolic")
+            .tooltip_text("Toggle Display Settings Panel")
+            .active(true)
+            .visible(false) // Only visible when collapsed by breakpoint
+            .build();
+        header_bar.pack_end(&sidebar_toggle_btn);
+
         let apply_btn = gtk4::Button::builder()
             .label("Apply Changes")
             .css_classes(["suggested-action"])
             .tooltip_text("Apply display configuration with 15s safety rollback")
             .build();
         header_bar.pack_end(&apply_btn);
-
-        // Canvas & Settings Paned layout
-        let paned = gtk4::Paned::builder()
-            .orientation(gtk4::Orientation::Horizontal)
-            .wide_handle(true)
-            .shrink_start_child(false)
-            .shrink_end_child(false)
-            .build();
 
         // Create Canvas with selection & movement callbacks
         let state_select = Rc::clone(&state);
@@ -110,26 +111,54 @@ impl MainAppWindow {
 
         *settings_select_cell.borrow_mut() = Some(settings_panel.clone());
 
-        paned.set_start_child(Some(&canvas.widget));
-        paned.set_end_child(Some(&settings_panel.widget));
-        paned.set_position(650);
+        // Adaptive OverlaySplitView (Libadwaita 1.4+)
+        let split_view = adw::OverlaySplitView::builder()
+            .sidebar_position(gtk4::PackType::End)
+            .min_sidebar_width(340.0)
+            .max_sidebar_width(420.0)
+            .enable_show_gesture(true)
+            .enable_hide_gesture(true)
+            .content(&canvas.widget)
+            .sidebar(&settings_panel.widget)
+            .build();
+
+        // Wire sidebar toggle button
+        let split_view_toggle = split_view.clone();
+        sidebar_toggle_btn.connect_toggled(move |btn| {
+            split_view_toggle.set_show_sidebar(btn.is_active());
+        });
+
+        let btn_sync = sidebar_toggle_btn.clone();
+        split_view.connect_show_sidebar_notify(move |view| {
+            btn_sync.set_active(view.shows_sidebar());
+        });
 
         let main_box = gtk4::Box::builder()
             .orientation(gtk4::Orientation::Vertical)
             .build();
 
         main_box.append(&header_bar);
-        main_box.append(&paned);
+        main_box.append(&split_view);
 
         toast_overlay.set_child(Some(&main_box));
 
         let window = adw::ApplicationWindow::builder()
             .application(app)
             .title("Hyprland Display Manager")
-            .default_width(1050)
-            .default_height(680)
+            .default_width(980)
+            .default_height(640)
             .content(&toast_overlay)
             .build();
+
+        // Responsive Breakpoint for screen widths < 880px
+        let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+            adw::BreakpointConditionLengthType::MaxWidth,
+            880.0,
+            adw::LengthUnit::Px,
+        ));
+        breakpoint.add_setter(&split_view, "collapsed", Some(&true.to_value()));
+        breakpoint.add_setter(&sidebar_toggle_btn, "visible", Some(&true.to_value()));
+        window.add_breakpoint(breakpoint);
 
         let app_window = Self {
             window,
