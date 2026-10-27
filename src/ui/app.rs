@@ -94,47 +94,37 @@ impl MainAppWindow {
             },
             {
                 let state_move = Rc::clone(&state);
-                let settings_move_ref = Rc::clone(&settings_select_cell);
                 let banner_ref = Rc::clone(&banner_move_ref);
                 move |name, x, y| {
                     let mut s = state_move.borrow_mut();
-                    let is_selected = s.selected_monitor.as_deref() == Some(&name);
-                    let mut updated_mon = None;
-
                     if let Some(mon) = s.draft_config.monitors.get_mut(&name) {
                         mon.position.x = x;
                         mon.position.y = y;
-                        if is_selected {
-                            updated_mon = Some(mon.clone());
-                        }
-                    }
-
-                    if let Some(mon) = updated_mon {
-                        if let Some(ref panel) = *settings_move_ref.borrow() {
-                            let all: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
-                            panel.set_monitor(Some(mon), &all);
-                        }
                     }
 
                     if let Some(ref banner) = *banner_ref.borrow() {
                         let overlaps = s.draft_config.find_extended_overlaps();
-                        if !overlaps.is_empty() {
-                            let names: Vec<String> = overlaps
-                                .iter()
-                                .map(|(a, b)| format!("'{}' and '{}'", a, b))
-                                .collect();
-                            banner.set_title(&format!(
-                                "Displays {} overlap! Extended monitors cannot share coordinates in Hyprland.",
-                                names.join(", ")
-                            ));
-                            banner.set_revealed(true);
-                        } else {
-                            banner.set_revealed(false);
+                        let should_reveal = !overlaps.is_empty();
+                        if banner.is_revealed() != should_reveal {
+                            if should_reveal {
+                                let names: Vec<String> = overlaps
+                                    .iter()
+                                    .map(|(a, b)| format!("'{}' and '{}'", a, b))
+                                    .collect();
+                                banner.set_title(&format!(
+                                    "Displays {} overlap! Extended monitors cannot share coordinates in Hyprland.",
+                                    names.join(", ")
+                                ));
+                                banner.set_revealed(true);
+                            } else {
+                                banner.set_revealed(false);
+                            }
                         }
                     }
                 }
             },
         );
+
 
         // Create settings panel
         let state_update = Rc::clone(&state);

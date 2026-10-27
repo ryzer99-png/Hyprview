@@ -75,13 +75,17 @@ pub struct RawHyprlandMonitor {
 
 impl From<RawHyprlandMonitor> for Monitor {
     fn from(raw: RawHyprlandMonitor) -> Self {
-        let active_mode = Mode::new(raw.width, raw.height, raw.refresh_rate);
-
         let available_modes: Vec<Mode> = raw
             .available_modes
             .iter()
             .filter_map(|m_str| m_str.parse().ok())
             .collect();
+
+        let mut active_mode = Mode::new(raw.width, raw.height, raw.refresh_rate);
+        if (active_mode.resolution.width == 0 || active_mode.resolution.height == 0) && !available_modes.is_empty() {
+            active_mode = available_modes[0];
+        }
+
 
         let mirror_of = if raw.mirror_of.is_empty() || raw.mirror_of == "none" {
             None
