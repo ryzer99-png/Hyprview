@@ -31,11 +31,16 @@
    - Automatically reverts to previous working configuration if not confirmed within 15 seconds (prevents black screens).
    - Persists changes to both `~/.config/hypr/monitors.lua` and `~/.config/hypr/monitors.conf`.
 
-6. **Rescue Daemon Mode (`--daemon`):**
-   - Background event watcher on Hyprland IPC socket (`.socket2.sock`).
-   - Automatically re-enables laptop internal screen (`eDP-1`) if all external displays are disconnected.
-   - Evaluates display state at boot time to prevent black-screen cold starts.
+6. **Blackout Prevention & Universal Fallback:**
+   - Universal internal display recognition across Linux devices: laptops (`eDP`, `LVDS`), handheld gaming PCs (`DSI` on Steam Deck / ROG Ally), and convertibles/embedded panels.
+   - Automatically injects an emergency fallback rule (`monitor = , preferred, auto, 1` / Lua `hl.monitor({ output = "", mode = "preferred", position = "auto" })`) into generated configs.
+   - Warns users with an informative `AdwAlertDialog` if they attempt to disable their internal display without an active rescue daemon.
 
+7. **Rescue Daemon Mode (`--daemon`) & Systemd User Service:**
+   - Background event watcher on Hyprland IPC socket (`.socket2.sock`).
+   - Automatically detects monitor disconnection (`monitorremoved>>*`) and restores the built-in screen if all external displays are unplugged.
+   - Evaluates display state at boot time to prevent black-screen cold starts.
+   - One-click systemd service installer: `hypr-display-manager --install-service` (or directly from the GUI warning dialog).
 
 ---
 
@@ -61,7 +66,10 @@ cargo run
 # Or inspect connected monitors via CLI:
 cargo run -- --test-ipc
 
-# Run the rescue background daemon:
+# Install and enable the rescue daemon systemd service:
+cargo run -- --install-service
+
+# Or run the rescue daemon directly:
 cargo run -- --daemon
 ```
 
@@ -69,15 +77,20 @@ cargo run -- --daemon
 
 ## Hyprland Configuration Integration
 
-To ensure your displays load at Hyprland startup:
+To ensure your displays load at Hyprland startup and protect against blackouts on cable disconnect:
 
-### If using Lua configuration (`hyprland.lua` or `conf/autostart.lua`):
+### Option A: Systemd User Service (Recommended)
+```bash
+hypr-display-manager --install-service
+```
+
+### Option B: If using Lua configuration (`hyprland.lua` or `conf/autostart.lua`):
 ```lua
 -- Rescue daemon: guarantees laptop screen is re-enabled if external monitor is disconnected
 hl.exec_once("hypr-display-manager --daemon")
 ```
 
-### If using legacy configuration (`hyprland.conf`):
+### Option C: If using legacy configuration (`hyprland.conf`):
 ```ini
 source = ~/.config/hypr/monitors.conf
 exec-once = hypr-display-manager --daemon

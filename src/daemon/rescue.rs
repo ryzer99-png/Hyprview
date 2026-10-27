@@ -91,15 +91,18 @@ impl RescueDaemon {
                     let mut updated_monitors = monitors.clone();
                     if let Some(m) = updated_monitors.iter_mut().find(|m| m.name == internal.name) {
                         m.enabled = true;
+                        m.is_primary = true;
                         m.position.x = 0;
                         m.position.y = 0;
                     }
-                    let config = DisplayConfiguration::new(updated_monitors);
+                    let mut config = DisplayConfiguration::new(updated_monitors);
+                    config.set_primary(&internal.name);
                     if let Err(e) = ConfigPersistence::save(&config) {
                         error!("Failed to persist rescued config: {:#}", e);
                     }
 
-                    // 3. Emit a compositor native notification
+                    // 3. Emit a compositor native notification and focus monitor
+                    let _ = HyprctlClient::dispatch(&format!("focusmonitor {}", internal.name));
                     let _ = Command::new("hyprctl")
                         .args([
                             "notify",
@@ -122,5 +125,67 @@ impl RescueDaemon {
         }
 
         Ok(false)
+    }
+
+    /// Checks if another instance of the rescue daemon is already running
+    pub fn is_running() -> bool {
+        let output = Command::new("pgrep")
+            .args(["-f", "hypr-display-manager.*--daemon"])
+            .output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let my_pid = std::process::id().to_string();
+            for line in stdout.lines() {
+                let pid = line.trim();
+                if !pid.is_empty() && pid != my_pid {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Automatically installs and enables the systemd user service on Linux
+    pub fn install_user_service() -> anyhow::Result<std::path::PathBuf> {
+        let config_dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Could not locate user config directory"))?;
+        let user_systemd_dir = config_dir.join("systemd").join("user");
+        std::fs::create_dir_all(&user_systemd_dir)?;
+        let target_service = user_systemd_dir.join("hypr-display-manager.service");
+
+        let current_exe = std::env::current_exe()
+            .unwrap_or_else(|_| std::path::PathBuf::from("hypr-display-manager"));
+        let exe_str = current_exe.to_string_lossy();
+
+        let service_content = format!(
+            r#"[Unit]
+Description=Hyprland Display Manager Rescue Daemon
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={} --daemon
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=graphical-session.target
+"#,
+            exe_str
+        );
+
+        std::fs::write(&target_service, service_content)?;
+
+        // Reload systemd daemon and enable service
+        let _ = Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .output();
+        let _ = Command::new("systemctl")
+            .args(["--user", "enable", "--now", "hypr-display-manager.service"])
+            .output();
+
+        info!("Successfully installed and enabled rescue daemon systemd service at {:?}", target_service);
+        Ok(target_service)
     }
 }

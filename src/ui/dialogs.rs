@@ -144,3 +144,56 @@ impl OverlapWarningDialog {
     }
 }
 
+pub struct InternalDisplayWarningDialog;
+
+impl InternalDisplayWarningDialog {
+    /// Warns the user when disabling an internal screen and offers automatic rescue daemon activation
+    pub fn show<FProceed, FEnableService>(
+        parent: &impl IsA<gtk4::Widget>,
+        internal_name: &str,
+        on_proceed: FProceed,
+        on_enable_service: FEnableService,
+    ) where
+        FProceed: FnOnce() + 'static,
+        FEnableService: FnOnce() + 'static,
+    {
+        let body = format!(
+            "You are disabling the internal laptop/handheld display ('{}').\n\n\
+            ⚠️ Blackout Risk: If you disconnect your external monitor while the internal screen is disabled, Hyprland will have no active screens left, causing a black screen!\n\n\
+            Hyprview includes a background Rescue Daemon that listens for monitor disconnects and automatically recovers your internal screen.\n\n\
+            What would you like to do?",
+            internal_name
+        );
+
+        let dialog = adw::AlertDialog::builder()
+            .heading("Disabling Integrated Display")
+            .body(&body)
+            .build();
+
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("enable_service", "Enable Rescue Daemon (systemd)");
+        dialog.add_response("proceed", "Apply Anyway");
+
+        dialog.set_response_appearance("enable_service", adw::ResponseAppearance::Suggested);
+        dialog.set_response_appearance("proceed", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("enable_service"));
+        dialog.set_close_response("cancel");
+
+        let on_proceed_cell = Rc::new(RefCell::new(Some(on_proceed)));
+        let on_enable_service_cell = Rc::new(RefCell::new(Some(on_enable_service)));
+
+        dialog.choose(Some(parent), None::<&gtk4::gio::Cancellable>, move |response| {
+            if response == "enable_service" {
+                if let Some(enable) = on_enable_service_cell.borrow_mut().take() {
+                    enable();
+                }
+            } else if response == "proceed" {
+                if let Some(proceed) = on_proceed_cell.borrow_mut().take() {
+                    proceed();
+                }
+            }
+        });
+    }
+}
+
+

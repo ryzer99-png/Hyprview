@@ -117,12 +117,17 @@ impl From<RawHyprlandMonitor> for Monitor {
 
 
 impl Monitor {
-    /// Detects if this output is an integrated laptop display
+    /// Detects if this output is an integrated laptop, handheld, or embedded display
     pub fn is_internal(&self) -> bool {
         let name_lower = self.name.to_lowercase();
+        let desc_lower = self.description.to_lowercase();
         name_lower.starts_with("edp")
             || name_lower.starts_with("lvds")
-            || self.description.to_lowercase().contains("embedded")
+            || name_lower.starts_with("dsi")
+            || desc_lower.contains("embedded")
+            || desc_lower.contains("internal")
+            || desc_lower.contains("builtin")
+            || desc_lower.contains("built-in")
     }
 
     /// Computes the scaled logical size on the desktop
@@ -232,6 +237,20 @@ mod tests {
         };
 
         assert!(internal.is_internal());
+
+        let handheld = Monitor {
+            name: "DSI-1".to_string(),
+            description: "Built-in panel".to_string(),
+            ..internal.clone()
+        };
+        assert!(handheld.is_internal(), "DSI panel on handhelds/Steam Deck must be recognized as internal");
+
+        let lvds = Monitor {
+            name: "LVDS-1".to_string(),
+            description: "Internal Laptop Display".to_string(),
+            ..internal.clone()
+        };
+        assert!(lvds.is_internal(), "LVDS panel on laptops must be recognized as internal");
 
         let external = Monitor {
             name: "DP-2".to_string(),

@@ -2,7 +2,7 @@ use crate::backend::{ConfigPersistence, HyprctlClient};
 use crate::models::{DisplayConfiguration, Monitor};
 use crate::safety::RollbackGuard;
 use crate::ui::canvas::DisplayCanvas;
-use crate::ui::dialogs::{SafetyRollbackDialog, OverlapWarningDialog};
+use crate::ui::dialogs::{SafetyRollbackDialog, OverlapWarningDialog, InternalDisplayWarningDialog};
 use crate::ui::settings::MonitorSettingsPanel;
 use gtk4::prelude::*;
 use libadwaita as adw;
@@ -374,6 +374,47 @@ impl MainAppWindow {
             return;
         }
 
+        // Check if user is disabling an internal laptop/handheld monitor
+        let internal_being_disabled = draft.monitors.values().find(|m| {
+            m.is_internal()
+                && !m.enabled
+                && baseline.monitors.get(&m.name).map_or(false, |old| old.enabled)
+        });
+
+        if let Some(internal_mon) = internal_being_disabled {
+            if !crate::daemon::RescueDaemon::is_running() {
+                let app_proceed = self.clone();
+                let app_enable = self.clone();
+                let mon_name = internal_mon.name.clone();
+                let b = baseline.clone();
+                let d = draft.clone();
+
+                InternalDisplayWarningDialog::show(
+                    &self.window,
+                    &mon_name,
+                    move || {
+                        app_proceed.execute_apply(b, d);
+                    },
+                    move || {
+                        match crate::daemon::RescueDaemon::install_user_service() {
+                            Ok(_) => {
+                                app_enable.show_toast("Rescue Daemon enabled! Screen protected on disconnect.");
+                            }
+                            Err(e) => {
+                                app_enable.show_toast(&format!("Could not enable service: {}", e));
+                            }
+                        }
+                        app_enable.execute_apply(baseline, draft);
+                    },
+                );
+                return;
+            }
+        }
+
+        self.execute_apply(baseline, draft);
+    }
+
+    fn execute_apply(&self, baseline: DisplayConfiguration, draft: DisplayConfiguration) {
         let changed_monitors: Vec<Monitor> = draft
             .monitors
             .values()

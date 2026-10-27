@@ -29,6 +29,10 @@ struct Args {
     /// Test Hyprland IPC connection and print detected monitors
     #[arg(long)]
     test_ipc: bool,
+
+    /// Install and enable the background rescue daemon as a systemd user service
+    #[arg(long)]
+    install_service: bool,
 }
 
 fn main() -> Result<()> {
@@ -40,6 +44,21 @@ fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+
+    if args.install_service {
+        info!("Installing systemd user service for rescue daemon...");
+        match daemon::RescueDaemon::install_user_service() {
+            Ok(path) => {
+                println!("Successfully installed and enabled rescue daemon at: {:?}", path);
+                println!("The daemon will automatically recover your internal laptop display whenever external displays disconnect.");
+            }
+            Err(e) => {
+                eprintln!("Failed to install systemd user service: {:#}", e);
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
 
     if args.daemon {
         info!("Starting in rescue daemon mode...");

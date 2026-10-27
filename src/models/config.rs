@@ -256,6 +256,9 @@ impl DisplayConfiguration {
         }
 
         lines.push("".to_string());
+        lines.push("# Fallback rule: auto-detect any unconfigured or newly plugged display".to_string());
+        lines.push("monitor = , preferred, auto, 1".to_string());
+        lines.push("".to_string());
         lines.join("\n")
     }
 
@@ -279,6 +282,9 @@ impl DisplayConfiguration {
             lines.push(mon.to_lua_directive());
         }
 
+        lines.push("".to_string());
+        lines.push("-- Fallback rule: auto-detect any unconfigured or newly plugged display".to_string());
+        lines.push(r#"hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1.0 })"#.to_string());
         lines.push("".to_string());
         lines.join("\n")
     }
@@ -350,6 +356,11 @@ mod tests {
         let content = config.serialize_hyprland_conf();
         assert!(content.contains("monitor = DP-1, disable"));
         assert!(content.contains("monitor = eDP-1, 1920x1080@60.00, 0x0, 1.00"));
+        assert!(content.contains("monitor = , preferred, auto, 1"), "Must include universal fallback rule");
+
+        let lua_content = config.serialize_hyprland_lua();
+        assert!(lua_content.contains(r#"output = "DP-1", disabled = true"#));
+        assert!(lua_content.contains(r#"output = "", mode = "preferred", position = "auto""#), "Must include universal Lua fallback rule");
     }
 
     #[test]
