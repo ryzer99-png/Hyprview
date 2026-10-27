@@ -146,6 +146,9 @@ impl MainAppWindow {
 
         let settings_panel = MonitorSettingsPanel::new(move |updated_mon| {
             let mut s = state_update.borrow_mut();
+            let was_disabled = s.draft_config.monitors.get(&updated_mon.name).map_or(false, |m| !m.enabled);
+            let now_enabled = updated_mon.enabled;
+
             if updated_mon.is_primary {
                 s.draft_config.set_primary(&updated_mon.name);
                 if let Some(m) = s.draft_config.monitors.get_mut(&updated_mon.name) {
@@ -163,10 +166,16 @@ impl MainAppWindow {
                     .build();
                 toast_overlay_clone.add_toast(toast);
             } else {
-                s.draft_config.monitors.insert(updated_mon.name.clone(), updated_mon);
+                s.draft_config.monitors.insert(updated_mon.name.clone(), updated_mon.clone());
             }
+
+            if was_disabled && now_enabled {
+                s.draft_config.resolve_placement_on_enable(&updated_mon.name);
+            }
+
             let mon_list: Vec<Monitor> = s.draft_config.monitors.values().cloned().collect();
             canvas_update.set_monitors(mon_list.clone());
+
 
             // Refresh settings panel so any other monitor's primary switch updates to false
             if let Some(ref panel) = *settings_self_ref.borrow() {

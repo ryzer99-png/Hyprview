@@ -50,7 +50,7 @@ impl DisplayConfiguration {
             let offset_y = target.position.y;
 
             for m in self.monitors.values_mut() {
-                if m.enabled && m.mirror_of.is_none() {
+                if m.mirror_of.is_none() {
                     m.position.x -= offset_x;
                     m.position.y -= offset_y;
                 }
@@ -59,11 +59,66 @@ impl DisplayConfiguration {
         }
     }
 
+    /// Automatically ensures that when a monitor is enabled, it does not overlap with existing enabled monitors.
+    pub fn resolve_placement_on_enable(&mut self, name: &str) {
+        let (name_str, is_internal, mon_w) = match self.monitors.get(name) {
+            Some(m) if m.enabled && m.mirror_of.is_none() => {
+                let (w, _) = m.logical_size();
+                (m.name.clone(), m.is_internal(), w)
+            }
+            _ => return,
+        };
+
+        // Check if it overlaps with any other enabled extended monitor
+        let has_overlap = self.monitors.values().any(|other| {
+            other.name != name_str
+                && other.enabled
+                && other.mirror_of.is_none()
+                && self.monitors[&name_str].logical_rect().overlaps(&other.logical_rect())
+        });
+
+        if has_overlap {
+            // Find current bounding box of the other active monitors
+            let others: Vec<&Monitor> = self
+                .monitors
+                .values()
+                .filter(|other| other.name != name_str && other.enabled && other.mirror_of.is_none())
+                .collect();
+
+            if others.is_empty() {
+                return;
+            }
+
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            for other in &others {
+                let rect = other.logical_rect();
+                if (rect.origin.x as f64) < min_x {
+                    min_x = rect.origin.x as f64;
+                }
+                if rect.right() > max_x {
+                    max_x = rect.right();
+                }
+            }
+
+            if let Some(target) = self.monitors.get_mut(&name_str) {
+                if is_internal {
+                    // Place laptop screen to the left of existing displays
+                    target.position.x = (min_x - mon_w).round() as i32;
+                    target.position.y = 0;
+                } else {
+                    // Place external screen to the right of existing displays
+                    target.position.x = max_x.round() as i32;
+                    target.position.y = 0;
+                }
+            }
+        }
+    }
+
     /// Checks if at least one screen is enabled to prevent complete blackouts
     pub fn has_active_display(&self) -> bool {
         self.monitors.values().any(|m| m.enabled)
     }
-
 
     /// Detects if any non-mirrored (extended) displays overlap each other
     pub fn find_extended_overlaps(&self) -> Vec<(String, String)> {
@@ -103,8 +158,8 @@ impl DisplayConfiguration {
         });
 
         let mut current_x = 0;
-        for key in sorted_keys {
-            if let Some(m) = self.monitors.get_mut(&key) {
+        for key in &sorted_keys {
+            if let Some(m) = self.monitors.get_mut(key) {
                 if m.enabled && m.mirror_of.is_none() {
                     m.position.x = current_x;
                     m.position.y = 0;
@@ -113,7 +168,23 @@ impl DisplayConfiguration {
                 }
             }
         }
+
+        // Re-anchor to the primary monitor so it sits at (0, 0)
+        let primary_name = self.primary_monitor().map(|m| m.name.clone());
+        if let Some(ref name) = primary_name {
+            if let Some(primary_mon) = self.monitors.get(name) {
+                let offset_x = primary_mon.position.x;
+                let offset_y = primary_mon.position.y;
+                for m in self.monitors.values_mut() {
+                    if m.mirror_of.is_none() {
+                        m.position.x -= offset_x;
+                        m.position.y -= offset_y;
+                    }
+                }
+            }
+        }
     }
+
 
     /// Calculates virtual canvas bounding rectangle: (min_x, min_y, max_x, max_y)
     pub fn bounding_box(&self) -> (f64, f64, f64, f64) {
@@ -335,6 +406,24 @@ mod tests {
         let edp_pos = conf.find("monitor = eDP-1").unwrap();
         assert!(hdmi_pos < edp_pos, "Primary monitor must be listed first in configuration");
     }
+
+    #[test]
+    fn test_resolve_placement_on_enable() {
+        let mut config = DisplayConfiguration::new(vec![
+            dummy_monitor("HDMI-A-1", 0, true),
+            dummy_monitor("eDP-1", 0, false), // eDP-1 disabled, sitting at (0, 0)
+        ]);
+
+        // Enable eDP-1 (which currently shares 0,0 with HDMI-A-1)
+        config.monitors.get_mut("eDP-1").unwrap().enabled = true;
+        // Resolve placement: eDP-1 is internal laptop screen, so it should move to left of HDMI-A-1 (-1920)
+        config.resolve_placement_on_enable("eDP-1");
+
+        assert_eq!(config.monitors["eDP-1"].position.x, -1920);
+        assert_eq!(config.monitors["HDMI-A-1"].position.x, 0);
+        assert!(config.find_extended_overlaps().is_empty());
+    }
 }
+
 
 
