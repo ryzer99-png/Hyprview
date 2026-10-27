@@ -214,11 +214,18 @@ impl MonitorSettingsPanel {
         self.enabled_switch.connect_active_notify(move |switch| {
             primary_clone.set_sensitive(switch.is_active());
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                mon.enabled = switch.is_active();
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    mon.enabled = switch.is_active();
+                    Some(mon.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(mon) = to_update {
                 if let Some(ref f) = *update.borrow() {
-                    f(mon.clone());
+                    f(mon);
                 }
             }
         });
@@ -229,19 +236,32 @@ impl MonitorSettingsPanel {
         let suppress = Rc::clone(&self.suppress_events);
         self.primary_switch.connect_active_notify(move |switch| {
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                if switch.is_active() {
-                    mon.is_primary = true;
-                    if let Some(ref f) = *update.borrow() {
-                        f(mon.clone());
+            let mut reset_active = false;
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    if switch.is_active() {
+                        mon.is_primary = true;
+                        Some(mon.clone())
+                    } else if mon.is_primary {
+                        reset_active = true;
+                        None
+                    } else {
+                        None
                     }
-                } else if mon.is_primary {
-                    switch.set_active(true);
+                } else {
+                    None
+                }
+            };
+            if reset_active {
+                switch.set_active(true);
+            }
+            if let Some(mon) = to_update {
+                if let Some(ref f) = *update.borrow() {
+                    f(mon);
                 }
             }
         });
-
 
         // Mirror combo signal
         let current = Rc::clone(&self.current_monitor);
@@ -254,38 +274,52 @@ impl MonitorSettingsPanel {
 
         self.mirror_combo.connect_selected_notify(move |combo| {
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                let idx = combo.selected() as usize;
-                let others_ref = others.borrow();
+            let idx = combo.selected() as usize;
+            let others_ref = others.borrow();
+            let is_extended = idx == 0 || others_ref.is_empty();
+            let target_name = if !is_extended && idx - 1 < others_ref.len() {
+                Some(others_ref[idx - 1].clone())
+            } else {
+                None
+            };
+            drop(others_ref);
 
-                if idx == 0 || others_ref.is_empty() {
-                    // Extended mode
-                    let was_mirrored = mon.mirror_of.is_some();
-                    mon.mirror_of = None;
-                    modes_clone.set_sensitive(true);
-                    scale_row_clone.set_sensitive(true);
-                    scale_box_clone.set_sensitive(true);
+            if is_extended {
+                modes_clone.set_sensitive(true);
+                scale_row_clone.set_sensitive(true);
+                scale_box_clone.set_sensitive(true);
+            } else {
+                modes_clone.set_sensitive(false);
+                scale_row_clone.set_sensitive(false);
+                scale_box_clone.set_sensitive(false);
+            }
 
-                    if was_mirrored {
-                        let (w, _) = mon.logical_size();
-                        if mon.position.x == 0 {
-                            mon.position.x = w.round() as i32;
-                        } else {
-                            mon.position.x = 0;
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    if is_extended {
+                        let was_mirrored = mon.mirror_of.is_some();
+                        mon.mirror_of = None;
+                        if was_mirrored {
+                            let (w, _) = mon.logical_size();
+                            if mon.position.x == 0 {
+                                mon.position.x = w.round() as i32;
+                            } else {
+                                mon.position.x = 0;
+                            }
                         }
+                    } else {
+                        mon.mirror_of = target_name;
                     }
-                } else if idx - 1 < others_ref.len() {
-                    // Mirror of another monitor
-                    let target_name = others_ref[idx - 1].clone();
-                    mon.mirror_of = Some(target_name);
-                    modes_clone.set_sensitive(false);
-                    scale_row_clone.set_sensitive(false);
-                    scale_box_clone.set_sensitive(false);
+                    Some(mon.clone())
+                } else {
+                    None
                 }
+            };
 
+            if let Some(mon) = to_update {
                 if let Some(ref f) = *update.borrow() {
-                    f(mon.clone());
+                    f(mon);
                 }
             }
         });
@@ -296,14 +330,23 @@ impl MonitorSettingsPanel {
         let suppress = Rc::clone(&self.suppress_events);
         self.modes_combo.connect_selected_notify(move |combo| {
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                let idx = combo.selected() as usize;
-                if idx < mon.available_modes.len() {
-                    mon.active_mode = mon.available_modes[idx];
-                    if let Some(ref f) = *update.borrow() {
-                        f(mon.clone());
+            let idx = combo.selected() as usize;
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    if idx < mon.available_modes.len() {
+                        mon.active_mode = mon.available_modes[idx];
+                        Some(mon.clone())
+                    } else {
+                        None
                     }
+                } else {
+                    None
+                }
+            };
+            if let Some(mon) = to_update {
+                if let Some(ref f) = *update.borrow() {
+                    f(mon);
                 }
             }
         });
@@ -317,11 +360,18 @@ impl MonitorSettingsPanel {
             let val = (scale.value() * 100.0).round() / 100.0;
             label_clone.set_text(&format!("{:.0}%", val * 100.0));
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                mon.scale = val;
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    mon.scale = val;
+                    Some(mon.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(mon) = to_update {
                 if let Some(ref f) = *update.borrow() {
-                    f(mon.clone());
+                    f(mon);
                 }
             }
         });
@@ -332,16 +382,24 @@ impl MonitorSettingsPanel {
         let suppress = Rc::clone(&self.suppress_events);
         self.transform_combo.connect_selected_notify(move |combo| {
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                mon.transform = match combo.selected() {
-                    1 => Transform::Rotate90,
-                    2 => Transform::Rotate180,
-                    3 => Transform::Rotate270,
-                    _ => Transform::Normal,
-                };
+            let new_trans = match combo.selected() {
+                1 => Transform::Rotate90,
+                2 => Transform::Rotate180,
+                3 => Transform::Rotate270,
+                _ => Transform::Normal,
+            };
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    mon.transform = new_trans;
+                    Some(mon.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(mon) = to_update {
                 if let Some(ref f) = *update.borrow() {
-                    f(mon.clone());
+                    f(mon);
                 }
             }
         });
@@ -352,15 +410,24 @@ impl MonitorSettingsPanel {
         let suppress = Rc::clone(&self.suppress_events);
         self.vrr_switch.connect_active_notify(move |switch| {
             if *suppress.borrow() { return; }
-            let mut opt = current.borrow_mut();
-            if let Some(ref mut mon) = *opt {
-                mon.vrr = switch.is_active();
+            let is_vrr = switch.is_active();
+            let to_update = {
+                let mut opt = current.borrow_mut();
+                if let Some(ref mut mon) = *opt {
+                    mon.vrr = is_vrr;
+                    Some(mon.clone())
+                } else {
+                    None
+                }
+            };
+            if let Some(mon) = to_update {
                 if let Some(ref f) = *update.borrow() {
-                    f(mon.clone());
+                    f(mon);
                 }
             }
         });
     }
+
 
     pub fn set_monitor(&self, monitor: Option<Monitor>, all_monitors: &[Monitor]) {
         *self.suppress_events.borrow_mut() = true;
